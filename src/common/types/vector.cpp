@@ -19,16 +19,17 @@
 
 namespace duckdb {
 
+// 创建FLAT_VECTOR
 Vector::Vector(LogicalType type_p, bool create_data, bool zero_data, idx_t capacity)
     : vector_type(VectorType::FLAT_VECTOR), type(move(type_p)), data(nullptr) {
 	if (create_data) {
 		Initialize(zero_data, capacity);
 	}
 }
-
+// 创建FLAT_VECTOR
 Vector::Vector(LogicalType type_p, idx_t capacity) : Vector(move(type_p), true, false, capacity) {
 }
-
+// 创建FLAT_VECTOR
 Vector::Vector(LogicalType type_p, data_ptr_t dataptr)
     : vector_type(VectorType::FLAT_VECTOR), type(move(type_p)), data(dataptr) {
 	if (dataptr && type.id() == LogicalTypeId::INVALID) {
@@ -63,7 +64,7 @@ Vector::Vector(Vector &&other) noexcept
 
 void Vector::Reference(const Value &value) {
 	D_ASSERT(GetType().id() == value.type().id());
-	this->vector_type = VectorType::CONSTANT_VECTOR;
+	this->vector_type = VectorType::CONSTANT_VECTOR; // 此处创建CONSTANT VECTOR
 	buffer = VectorBuffer::CreateConstantVector(value.type());
 	auto internal_type = value.type().InternalType();
 	if (internal_type == PhysicalType::STRUCT) {
@@ -201,7 +202,7 @@ void Vector::Initialize(bool zero_data, idx_t capacity) {
 		auxiliary = move(list_buffer);
 	}
 	auto type_size = GetTypeIdSize(internal_type);
-	if (type_size > 0) {
+	if (type_size > 0) { // 如果是struct或者map这种内嵌类型, type_size是0，data和buffer是nullptr
 		buffer = VectorBuffer::CreateStandardVector(type, capacity);
 		data = buffer->GetData();
 		if (zero_data) {

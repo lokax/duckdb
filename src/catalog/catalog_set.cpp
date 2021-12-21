@@ -216,10 +216,11 @@ void CatalogSet::CleanupEntry(CatalogEntry *catalog_entry) {
 			// delete the entry from the dependency manager, if it is not deleted yet
 			catalog_entry->catalog->dependency_manager->EraseObject(catalog_entry);
 		}
-		catalog_entry->parent->child = move(catalog_entry->child);
+		catalog_entry->parent->child = move(catalog_entry->child); //TODO: parent一定不为nullpr吗
 	}
 }
 
+// firs write win ?
 bool CatalogSet::HasConflict(ClientContext &context, transaction_t timestamp) {
 	auto &transaction = Transaction::GetTransaction(context);
 	return (timestamp >= TRANSACTION_ID_START && timestamp != transaction.transaction_id) ||
@@ -268,7 +269,7 @@ void CatalogSet::DeleteMapping(ClientContext &context, const string &name) {
 	delete_marker->deleted = true;
 	delete_marker->timestamp = Transaction::GetTransaction(context).transaction_id;
 	delete_marker->child = move(entry->second);
-	delete_marker->child->parent = delete_marker.get();
+	delete_marker->child->parent = delete_marker.get(); //TODO: child一定不是nullptr吗?
 	mapping[name] = move(delete_marker);
 }
 

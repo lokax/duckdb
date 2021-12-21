@@ -19,6 +19,7 @@
 
 namespace duckdb {
 
+// DataChunk是由多个列组成的
 DataChunk::DataChunk() : count(0), capacity(STANDARD_VECTOR_SIZE) {
 }
 
@@ -30,7 +31,7 @@ void DataChunk::InitializeEmpty(const vector<LogicalType> &types) {
 	D_ASSERT(data.empty());   // can only be initialized once
 	D_ASSERT(!types.empty()); // empty chunk not allowed
 	for (idx_t i = 0; i < types.size(); i++) {
-		data.emplace_back(Vector(types[i], nullptr));
+		data.emplace_back(Vector(types[i], nullptr)); //TODO: weng 构造出临时对象可能效率不行
 	}
 }
 
@@ -66,6 +67,7 @@ void DataChunk::Destroy() {
 	SetCardinality(0);
 }
 
+// index是Vector内部偏移的索引
 Value DataChunk::GetValue(idx_t col_idx, idx_t index) const {
 	D_ASSERT(index < size());
 	return data[col_idx].GetValue(index);
@@ -107,7 +109,7 @@ void DataChunk::Copy(DataChunk &other, idx_t offset) const {
 void DataChunk::Copy(DataChunk &other, const SelectionVector &sel, const idx_t source_count, const idx_t offset) const {
 	D_ASSERT(ColumnCount() == other.ColumnCount());
 	D_ASSERT(other.size() == 0);
-	D_ASSERT((offset + source_count) <= size());
+	D_ASSERT((offset + source_count) <= size()); // TODO: weng 有问题
 
 	for (idx_t i = 0; i < ColumnCount(); i++) {
 		D_ASSERT(other.data[i].GetVectorType() == VectorType::FLAT_VECTOR);
@@ -185,11 +187,11 @@ string DataChunk::ToString() const {
 
 void DataChunk::Serialize(Serializer &serializer) {
 	// write the count
-	serializer.Write<sel_t>(size());
-	serializer.Write<idx_t>(ColumnCount());
+	serializer.Write<sel_t>(size()); // 行数量
+	serializer.Write<idx_t>(ColumnCount()); // 列数量
 	for (idx_t col_idx = 0; col_idx < ColumnCount(); col_idx++) {
 		// write the types
-		data[col_idx].GetType().Serialize(serializer);
+		data[col_idx].GetType().Serialize(serializer); //
 	}
 	// write the data
 	for (idx_t col_idx = 0; col_idx < ColumnCount(); col_idx++) {

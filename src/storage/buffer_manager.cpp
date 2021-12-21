@@ -302,6 +302,7 @@ unique_ptr<BufferHandle> BufferManager::Pin(shared_ptr<BlockHandle> &handle) {
 void BufferManager::AddToEvictionQueue(shared_ptr<BlockHandle> &handle) {
 	D_ASSERT(handle->readers == 0);
 	handle->eviction_timestamp++;
+    // weak ptr是不会导致handle智能指针的引用计数增加的
 	queue->q.enqueue(make_unique<BufferEvictionNode>(weak_ptr<BlockHandle>(handle), handle->eviction_timestamp));
 	// FIXME: do some house-keeping to prevent the queue from being flooded with many old blocks
 }
@@ -319,7 +320,7 @@ bool BufferManager::EvictBlocks(idx_t extra_memory, idx_t memory_limit) {
 	PurgeQueue();
 
 	unique_ptr<BufferEvictionNode> node;
-	current_memory += extra_memory;
+	current_memory += extra_memory; // 原子变量
 	while (current_memory > memory_limit) {
 		// get a block to unpin from the queue
 		if (!queue->q.try_dequeue(node)) {
@@ -405,7 +406,7 @@ void BufferManager::RequireTemporaryDirectory() {
 		    "Out-of-memory: cannot write buffer because no temporary directory is specified!\nTo enable "
 		    "temporary buffer eviction set a temporary directory using PRAGMA temp_directory='/path/to/tmp.tmp'");
 	}
-	lock_guard<mutex> temp_handle_guard(temp_handle_lock);
+	lock_guard<mutex> temp_handle_guard(temp_handle_lock); // 加临时handle锁
 	if (!temp_directory_handle) {
 		// temp directory has not been created yet: initialize it
 		temp_directory_handle = make_unique<TemporaryDirectoryHandle>(db, temp_directory);
@@ -427,10 +428,10 @@ void BufferManager::WriteTemporaryBuffer(ManagedBuffer &buffer) {
 
 unique_ptr<FileBuffer> BufferManager::ReadTemporaryBuffer(block_id_t id) {
 	D_ASSERT(!temp_directory.empty());
-	D_ASSERT(temp_directory_handle.get());
+	D_ASSERT(temp_directory_handle.get()); 
 	idx_t block_size;
 	// open the temporary file and read the size
-	auto path = GetTemporaryPath(id);
+	auto path = GetTemporaryPath(id); // 获取文件路径
 	auto &fs = FileSystem::GetFileSystem(db);
 	auto handle = fs.OpenFile(path, FileFlags::FILE_FLAGS_READ);
 	handle->Read(&block_size, sizeof(idx_t), 0);

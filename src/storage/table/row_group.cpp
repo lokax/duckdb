@@ -85,7 +85,7 @@ bool RowGroup::InitializeScanWithOffset(RowGroupScanState &state, idx_t vector_o
 }
 
 bool RowGroup::InitializeScan(RowGroupScanState &state) {
-	auto &column_ids = state.parent.column_ids;
+	auto &column_ids = state.parent.column_ids; // 要获取的列id
 	if (state.parent.table_filters) {
 		if (!CheckZonemap(*state.parent.table_filters, column_ids)) {
 			return false;
@@ -94,7 +94,7 @@ bool RowGroup::InitializeScan(RowGroupScanState &state) {
 	state.row_group = this;
 	state.vector_index = 0;
 	state.max_row =
-	    this->start > state.parent.max_row ? 0 : MinValue<idx_t>(this->count, state.parent.max_row - this->start);
+	    this->start > state.parent.max_row ? 0 : MinValue<idx_t>(this->count, state.parent.max_row - this->start); // 此处start > state.parent.max_row是否是因为竞争的关系导致的
 	state.column_scans = unique_ptr<ColumnScanState[]>(new ColumnScanState[column_ids.size()]);
 	for (idx_t i = 0; i < column_ids.size(); i++) {
 		auto column = column_ids[i];
@@ -246,7 +246,7 @@ bool RowGroup::CheckZonemap(TableFilterSet &filters, const vector<column_t> &col
 }
 
 bool RowGroup::CheckZonemapSegments(RowGroupScanState &state) {
-	if (!state.parent.table_filters) {
+	if (!state.parent.table_filters) { // 没有过滤器，则true，看起来合理的样子
 		return true;
 	}
 	auto &column_ids = state.parent.column_ids;
@@ -472,7 +472,7 @@ idx_t RowGroup::GetCommittedSelVector(transaction_t start_time, transaction_t tr
 }
 
 bool RowGroup::Fetch(Transaction &transaction, idx_t row) {
-	D_ASSERT(row < this->count);
+	D_ASSERT(row < this->count); // row = row_id - start， 其实是一个偏移量
 	lock_guard<mutex> lock(row_group_lock);
 
 	idx_t vector_index = row / STANDARD_VECTOR_SIZE;
@@ -486,24 +486,25 @@ bool RowGroup::Fetch(Transaction &transaction, idx_t row) {
 void RowGroup::FetchRow(Transaction &transaction, ColumnFetchState &state, const vector<column_t> &column_ids,
                         row_t row_id, DataChunk &result, idx_t result_idx) {
 	for (idx_t col_idx = 0; col_idx < column_ids.size(); col_idx++) {
-		auto column = column_ids[col_idx];
-		if (column == COLUMN_IDENTIFIER_ROW_ID) {
+		auto column = column_ids[col_idx]; // 需要Fetch哪些列
+		if (column == COLUMN_IDENTIFIER_ROW_ID) { // 特殊值，表明行ID
 			// row id column: fill in the row ids
 			D_ASSERT(result.data[col_idx].GetType().InternalType() == PhysicalType::INT64);
 			result.data[col_idx].SetVectorType(VectorType::FLAT_VECTOR);
-			auto data = FlatVector::GetData<row_t>(result.data[col_idx]);
+			auto data = FlatVector::GetData<row_t>(result.data[col_idx]); // DataChunk里面有多个data，每个data都是一个列
 			data[result_idx] = row_id;
 		} else {
+            // Column Data是一个包含单列值的Segment Tree
 			// regular column: fetch data from the base column
 			columns[column]->FetchRow(transaction, state, row_id, result.data[col_idx], result_idx);
 		}
 	}
 }
-
+// weng: AppendVersionInfo(transaction, this->count, append_count, transaction.transaction_id);
 void RowGroup::AppendVersionInfo(Transaction &transaction, idx_t row_group_start, idx_t count,
                                  transaction_t commit_id) {
-	idx_t row_group_end = row_group_start + count;
-	lock_guard<mutex> lock(row_group_lock);
+	idx_t row_group_end = row_group_start + count; // 计算结尾位置
+	lock_guard<mutex> lock(row_group_lock); // 加row_group_lock
 
 	this->count += count;
 	D_ASSERT(this->count <= RowGroup::ROW_GROUP_SIZE);
@@ -518,10 +519,10 @@ void RowGroup::AppendVersionInfo(Transaction &transaction, idx_t row_group_start
 		idx_t start = vector_idx == start_vector_idx ? row_group_start - start_vector_idx * STANDARD_VECTOR_SIZE : 0;
 		idx_t end =
 		    vector_idx == end_vector_idx ? row_group_end - end_vector_idx * STANDARD_VECTOR_SIZE : STANDARD_VECTOR_SIZE;
-		if (start == 0 && end == STANDARD_VECTOR_SIZE) {
+		if (start == 0 && end == STANDARD_VECTOR_SIZE) { // 完整的一个Vector
 			// entire vector is encapsulated by append: append a single constant
 			auto constant_info = make_unique<ChunkConstantInfo>(this->start + vector_idx * STANDARD_VECTOR_SIZE);
-			constant_info->insert_id = commit_id;
+			constant_info->insert_id = commit_id; // InitAppend时添加进来的是当前事务ID
 			constant_info->delete_id = NOT_DELETED_ID;
 			version_info->info[vector_idx] = move(constant_info);
 		} else {
@@ -555,7 +556,7 @@ void RowGroup::CommitAppend(transaction_t commit_id, idx_t row_group_start, idx_
 		    vector_idx == end_vector_idx ? row_group_end - end_vector_idx * STANDARD_VECTOR_SIZE : STANDARD_VECTOR_SIZE;
 
 		auto info = version_info->info[vector_idx].get();
-		info->CommitAppend(commit_id, start, end);
+		info->CommitAppend(commit_id, start, end); 
 	}
 }
 
@@ -566,7 +567,7 @@ void RowGroup::RevertAppend(idx_t row_group_start) {
 	idx_t start_row = row_group_start - this->start;
 	idx_t start_vector_idx = (start_row + (STANDARD_VECTOR_SIZE - 1)) / STANDARD_VECTOR_SIZE;
 	for (idx_t vector_idx = start_vector_idx; vector_idx < RowGroup::ROW_GROUP_VECTOR_COUNT; vector_idx++) {
-		version_info->info[vector_idx].reset();
+		version_info->info[vector_idx].reset(); // 直接reset？干完我直接跑路
 	}
 	for (auto &column : columns) {
 		column->RevertAppend(row_group_start);
@@ -575,10 +576,11 @@ void RowGroup::RevertAppend(idx_t row_group_start) {
 	Verify();
 }
 
+// 每次都会添加版本信息
 void RowGroup::InitializeAppend(Transaction &transaction, RowGroupAppendState &append_state,
                                 idx_t remaining_append_count) {
 	append_state.row_group = this;
-	append_state.offset_in_row_group = this->count;
+	append_state.offset_in_row_group = this->count; // 在row_group中的偏移量
 	// for each column, initialize the append state
 	append_state.states = unique_ptr<ColumnAppendState[]>(new ColumnAppendState[columns.size()]);
 	for (idx_t i = 0; i < columns.size(); i++) {
@@ -588,7 +590,7 @@ void RowGroup::InitializeAppend(Transaction &transaction, RowGroupAppendState &a
 	idx_t append_count = MinValue<idx_t>(remaining_append_count, RowGroup::ROW_GROUP_SIZE - this->count);
 	AppendVersionInfo(transaction, this->count, append_count, transaction.transaction_id);
 }
-
+// 实际添加数据
 void RowGroup::Append(RowGroupAppendState &state, DataChunk &chunk, idx_t append_count) {
 	// append to the current row_group
 	for (idx_t i = 0; i < columns.size(); i++) {
@@ -596,7 +598,7 @@ void RowGroup::Append(RowGroupAppendState &state, DataChunk &chunk, idx_t append
 	}
 	state.offset_in_row_group += append_count;
 }
-
+// Update会在ColumData里面去检测冲突
 void RowGroup::Update(Transaction &transaction, DataChunk &update_chunk, row_t *ids, idx_t offset, idx_t count,
                       const vector<column_t> &column_ids) {
 #ifdef DEBUG
@@ -604,8 +606,9 @@ void RowGroup::Update(Transaction &transaction, DataChunk &update_chunk, row_t *
 		D_ASSERT(ids[i] >= row_t(this->start) && ids[i] < row_t(this->start + this->count));
 	}
 #endif
+    // 从offset开始的count个ids都是属于同一个Vector的
 	for (idx_t i = 0; i < column_ids.size(); i++) {
-		auto column = column_ids[i];
+		auto column = column_ids[i]; // 代表第几列
 		D_ASSERT(column != COLUMN_IDENTIFIER_ROW_ID);
 		D_ASSERT(columns[column]->type.id() == update_chunk.data[i].GetType().id());
 		columns[column]->Update(transaction, column, update_chunk.data[i], ids, offset, count);
@@ -794,7 +797,7 @@ public:
 };
 
 idx_t RowGroup::Delete(Transaction &transaction, DataTable *table, row_t *ids, idx_t count) {
-	lock_guard<mutex> lock(row_group_lock);
+	lock_guard<mutex> lock(row_group_lock); // 加row_group_lock
 	VersionDeleteState del_state(*this, transaction, table, this->start);
 
 	// obtain a write lock

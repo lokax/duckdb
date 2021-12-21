@@ -43,11 +43,16 @@ UnicodeType Utf8Proc::Analyze(const char *s, size_t len, UnicodeInvalidReason *i
 		if ((c & 0x80) == 0) {
 			continue;
 		}
+        // 0xC0 --> 1100 0000
+        // 1100 0000
+        // 10xx xxxx
+        // 1000 0000 
 		type = UnicodeType::UNICODE;
 		if ((s[++i] & 0xC0) != 0x80) {
 			AssignInvalidUTF8Reason(invalid_reason, invalid_pos, i, UnicodeInvalidReason::BYTE_MISMATCH);
 			return UnicodeType::INVALID;
 		}
+        // 0xE0 --> 1110 0000
 		if ((c & 0xE0) == 0xC0) {
 			continue;
 		}
@@ -55,6 +60,7 @@ UnicodeType Utf8Proc::Analyze(const char *s, size_t len, UnicodeInvalidReason *i
 			AssignInvalidUTF8Reason(invalid_reason, invalid_pos, i, UnicodeInvalidReason::BYTE_MISMATCH);
 			return UnicodeType::INVALID;
 		}
+        // 0xF0 --> 1111 0000
 		if ((c & 0xF0) == 0xE0) {
 			continue;
 		}

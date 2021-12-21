@@ -240,14 +240,15 @@ void DataTable::InitializeScan(TableScanState &state, const vector<column_t> &co
                                TableFilterSet *table_filters) {
 	// initialize a column scan state for each column
 	// initialize the chunk scan state
-	auto row_group = (RowGroup *)row_groups->GetRootSegment();
-	state.column_ids = column_ids;
-	state.max_row = total_rows;
+	auto row_group = (RowGroup *)row_groups->GetRootSegment();  // 获取第一个RowGroup
+	state.column_ids = column_ids; // 需要获取的列id
+	state.max_row = total_rows; // 表的行数
 	state.table_filters = table_filters;
 	if (table_filters) {
 		D_ASSERT(!table_filters->filters.empty());
 		state.adaptive_filter = make_unique<AdaptiveFilter>(table_filters);
 	}
+    // 给Row Group初始化Scan
 	while (row_group && !row_group->InitializeScan(state.row_group_scan_state)) {
 		row_group = (RowGroup *)row_group->next.get();
 	}
@@ -262,7 +263,7 @@ void DataTable::InitializeScan(Transaction &transaction, TableScanState &state, 
 void DataTable::InitializeScanWithOffset(TableScanState &state, const vector<column_t> &column_ids, idx_t start_row,
                                          idx_t end_row) {
 
-	auto row_group = (RowGroup *)row_groups->GetSegment(start_row);
+	auto row_group = (RowGroup *)row_groups->GetSegment(start_row); // 内部加锁
 	state.column_ids = column_ids;
 	state.max_row = end_row;
 	state.table_filters = nullptr;
@@ -396,8 +397,8 @@ void DataTable::Fetch(Transaction &transaction, DataChunk &result, const vector<
 	idx_t count = 0;
 	for (idx_t i = 0; i < fetch_count; i++) {
 		auto row_id = row_ids[i];
-		auto row_group = (RowGroup *)row_groups->GetSegment(row_id);
-		if (!row_group->Fetch(transaction, row_id - row_group->start)) {
+		auto row_group = (RowGroup *)row_groups->GetSegment(row_id); // 内部加锁
+		if (!row_group->Fetch(transaction, row_id - row_group->start)) { // 不可Fetch则跳过
 			continue;
 		}
 		row_group->FetchRow(transaction, state, column_ids, row_id, result, count);
@@ -489,7 +490,7 @@ void DataTable::Append(TableCatalogEntry &table, ClientContext &context, DataChu
 
 void DataTable::InitializeAppend(Transaction &transaction, TableAppendState &state, idx_t append_count) {
 	// obtain the append lock for this table
-	state.append_lock = unique_lock<mutex>(append_lock);
+	state.append_lock = unique_lock<mutex>(append_lock); // 此处是指针
 	if (!is_root) {
 		throw TransactionException("Transaction conflict: adding entries to a table that has been altered!");
 	}
@@ -515,8 +516,8 @@ void DataTable::Append(Transaction &transaction, DataChunk &chunk, TableAppendSt
 	while (true) {
 		auto current_row_group = state.row_group_append_state.row_group;
 		// check how much we can fit into the current row_group
-		idx_t append_count =
-		    MinValue<idx_t>(remaining, RowGroup::ROW_GROUP_SIZE - state.row_group_append_state.offset_in_row_group);
+		idx_t append_count = 
+		    MinValue<idx_t>(remaining, RowGroup::ROW_GROUP_SIZE - state.row_group_append_state.offset_in_row_group); // row group size在这里控制
 		if (append_count > 0) {
 			current_row_group->Append(state.row_group_append_state, chunk, append_count);
 			// merge the stats
@@ -537,12 +538,12 @@ void DataTable::Append(Transaction &transaction, DataChunk &chunk, TableAppendSt
 				for (idx_t i = 0; i < remaining; i++) {
 					sel.set_index(i, append_count + i);
 				}
-				chunk.Slice(sel, remaining);
+				chunk.Slice(sel, remaining); // 剩余数据通过字典来映射
 			}
 			// append a new row_group
 			AppendRowGroup(current_row_group->start + current_row_group->count);
 			// set up the append state for this row_group
-			lock_guard<mutex> row_group_lock(row_groups->node_lock);
+			lock_guard<mutex> row_group_lock(row_groups->node_lock); 
 			auto last_row_group = (RowGroup *)row_groups->GetLastSegment();
 			last_row_group->InitializeAppend(transaction, state.row_group_append_state, state.remaining_append_count);
 			continue;
@@ -619,7 +620,7 @@ void DataTable::CommitAppend(transaction_t commit_id, idx_t row_start, idx_t cou
 		}
 		row_group = (RowGroup *)row_group->next.get();
 	}
-	info->cardinality += count;
+	info->cardinality += count; // 提交后才?
 }
 
 void DataTable::RevertAppendInternal(idx_t start_row, idx_t count) {
@@ -640,7 +641,7 @@ void DataTable::RevertAppendInternal(idx_t start_row, idx_t count) {
 	total_rows = start_row;
 	D_ASSERT(is_root);
 	// revert appends made to row_groups
-	lock_guard<mutex> tree_lock(row_groups->node_lock);
+	lock_guard<mutex> tree_lock(row_groups->node_lock); // 加node lock
 	// find the segment index that the current row belongs to
 	idx_t segment_index = row_groups->GetSegmentIndex(start_row);
 	auto segment = row_groups->nodes[segment_index].node;
@@ -655,7 +656,7 @@ void DataTable::RevertAppendInternal(idx_t start_row, idx_t count) {
 }
 
 void DataTable::RevertAppend(idx_t start_row, idx_t count) {
-	lock_guard<mutex> lock(append_lock);
+	lock_guard<mutex> lock(append_lock); // 加append lock
 
 	if (!info->indexes.Empty()) {
 		idx_t current_row_base = start_row;
@@ -799,7 +800,7 @@ idx_t DataTable::Delete(TableCatalogEntry &table, ClientContext &context, Vector
 		idx_t pos = 0;
 		do {
 			idx_t start = pos;
-			auto row_group = (RowGroup *)row_groups->GetSegment(ids[pos]);
+			auto row_group = (RowGroup *)row_groups->GetSegment(ids[pos]); // 内部加锁
 			for (pos++; pos < count; pos++) {
 				D_ASSERT(ids[pos] >= 0);
 				// check if this id still belongs to this row group
@@ -935,7 +936,8 @@ void DataTable::Update(TableCatalogEntry &table, ClientContext &context, Vector 
 	idx_t pos = 0;
 	do {
 		idx_t start = pos;
-		auto row_group = (RowGroup *)row_groups->GetSegment(ids[pos]);
+		auto row_group = (RowGroup *)row_groups->GetSegment(ids[pos]); // 获取Segment
+        // (86 - 10) / 50 --> 1 * 50 --> 50 + 10 -->60
 		row_t base_id =
 		    row_group->start + ((ids[pos] - row_group->start) / STANDARD_VECTOR_SIZE * STANDARD_VECTOR_SIZE);
 		for (pos++; pos < count; pos++) {
@@ -952,7 +954,7 @@ void DataTable::Update(TableCatalogEntry &table, ClientContext &context, Vector 
 		}
 		row_group->Update(transaction, updates, ids, start, pos - start, column_ids);
 
-		lock_guard<mutex> stats_guard(stats_lock);
+		lock_guard<mutex> stats_guard(stats_lock); // 统计数据锁
 		for (idx_t i = 0; i < column_ids.size(); i++) {
 			auto column_id = column_ids[i];
 			column_stats[column_id]->Merge(*row_group->GetStatistics(column_id));
@@ -1071,8 +1073,8 @@ unique_ptr<BaseStatistics> DataTable::GetStatistics(ClientContext &context, colu
 	if (column_id == COLUMN_IDENTIFIER_ROW_ID) {
 		return nullptr;
 	}
-	lock_guard<mutex> stats_guard(stats_lock);
-	return column_stats[column_id]->Copy();
+	lock_guard<mutex> stats_guard(stats_lock); // 统计信息锁
+	return column_stats[column_id]->Copy(); // 返回一个拷贝
 }
 
 //===--------------------------------------------------------------------===//

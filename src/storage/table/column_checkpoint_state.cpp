@@ -21,7 +21,8 @@ ColumnCheckpointState::ColumnCheckpointState(RowGroup &row_group, ColumnData &co
 ColumnCheckpointState::~ColumnCheckpointState() {
 }
 
-void ColumnCheckpointState::FlushSegment(unique_ptr<ColumnSegment> segment, idx_t segment_size) {
+void ColumnCheckpointState::
+FlushSegment(unique_ptr<ColumnSegment> segment, idx_t segment_size) {
 	D_ASSERT(segment_size <= Storage::BLOCK_SIZE);
 	auto tuple_count = segment->count.load();
 	if (tuple_count == 0) { // LCOV_EXCL_START
@@ -115,7 +116,7 @@ void ColumnCheckpointState::FlushSegment(unique_ptr<ColumnSegment> segment, idx_
 void ColumnCheckpointState::FlushToDisk() {
 	auto &meta_writer = writer.GetMetaWriter();
 
-	meta_writer.Write<idx_t>(data_pointers.size());
+	meta_writer.Write<idx_t>(data_pointers.size()); // 写 data pointers size
 	// then write the data pointers themselves
 	for (idx_t k = 0; k < data_pointers.size(); k++) {
 		auto &data_pointer = data_pointers[k];

@@ -113,9 +113,9 @@ bool UncompressedStringStorage::StringAnalyze(AnalyzeState &state_p, Vector &inp
 	for (idx_t i = 0; i < count; i++) {
 		auto idx = vdata.sel->get_index(i);
 		if (vdata.validity.RowIsValid(idx)) {
-			auto string_size = data[idx].GetSize();
+			auto string_size = data[idx].GetSize(); // 字符串大小
 			state.total_string_size += string_size;
-			if (string_size >= StringUncompressed::STRING_BLOCK_LIMIT) {
+			if (string_size >= StringUncompressed::STRING_BLOCK_LIMIT) { // 大于4096则属于大字符串
 				state.overflow_strings++;
 			}
 		}
@@ -125,6 +125,9 @@ bool UncompressedStringStorage::StringAnalyze(AnalyzeState &state_p, Vector &inp
 
 idx_t UncompressedStringStorage::StringFinalAnalyze(AnalyzeState &state_p) {
 	auto &state = (StringAnalyzeState &)state_p;
+    // sizeof(int32_t) 是index?
+    // overflow_strings多14个字节存MARKER?
+    //TODO: weng 是否对于total_string_size应该保证每个值都带上sizeof(uint32_t)?
 	return state.count * sizeof(int32_t) + state.total_string_size + state.overflow_strings * BIG_STRING_MARKER_SIZE;
 }
 
@@ -293,9 +296,9 @@ idx_t UncompressedStringStorage::FinalizeAppend(ColumnSegment &segment, SegmentS
 	auto dict = GetDictionary(segment, *handle);
 	D_ASSERT(dict.end == Storage::BLOCK_SIZE);
 	// compute the total size required to store this segment
-	auto offset_size = DICTIONARY_HEADER_SIZE + segment.count * sizeof(int32_t);
+	auto offset_size = DICTIONARY_HEADER_SIZE + segment.count * sizeof(int32_t); // offset array的大小
 	auto total_size = offset_size + dict.size;
-	if (total_size >= Storage::BLOCK_SIZE / 5 * 4) {
+	if (total_size >= Storage::BLOCK_SIZE / 5 * 4) { // 足够满就不移动了
 		// the block is full enough, don't bother moving around the dictionary
 		return Storage::BLOCK_SIZE;
 	}
@@ -420,7 +423,7 @@ string_t UncompressedStringStorage::ReadString(ColumnSegment &segment, Vector &r
 		offset += sizeof(uint32_t);
 
 		// allocate a buffer to store the string
-		auto alloc_size = MaxValue<idx_t>(Storage::BLOCK_SIZE, length + sizeof(uint32_t));
+		auto alloc_size = MaxValue<idx_t>(Storage::BLOCK_SIZE, length + sizeof(uint32_t)); // weng 是否有点过分大了
 		auto target_handle = buffer_manager.Allocate(alloc_size);
 		auto target_ptr = target_handle->node->buffer;
 		// write the length in this block as well
@@ -516,7 +519,7 @@ string_t UncompressedStringStorage::FetchString(ColumnSegment &segment, StringDi
 		return ReadString(segment, result, location.block_id, location.offset);
 	} else {
 		if (location.offset == 0) {
-			return string_t(nullptr, 0);
+			return string_t(nullptr, 0); // 空值
 		}
 		// normal string: read string from this block
 		auto dict_end = baseptr + dict.end;

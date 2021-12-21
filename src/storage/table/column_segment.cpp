@@ -52,12 +52,12 @@ ColumnSegment::ColumnSegment(DatabaseInstance &db, LogicalType type_p, ColumnSeg
 		// there are two cases here:
 		// transient: allocate a buffer for the uncompressed segment
 		// persistent: constant segment, no need to allocate anything
-		if (segment_type == ColumnSegmentType::TRANSIENT) {
-			this->block = buffer_manager.RegisterMemory(Storage::BLOCK_SIZE, false);
+		if (segment_type == ColumnSegmentType::TRANSIENT) { // TRANSIENT短暂的 应该是指内存
+			this->block = buffer_manager.RegisterMemory(Storage::BLOCK_SIZE, false); // 所以这里注册内存
 		}
 	} else {
-		D_ASSERT(segment_type == ColumnSegmentType::PERSISTENT);
-		this->block = buffer_manager.RegisterBlock(block_id);
+		D_ASSERT(segment_type == ColumnSegmentType::PERSISTENT); // 持久
+		this->block = buffer_manager.RegisterBlock(block_id); // 所以这里注册一个block?
 	}
 	if (function->init_segment) {
 		segment_state = function->init_segment(*this, block_id);
@@ -102,17 +102,19 @@ void ColumnSegment::ScanPartial(ColumnScanState &state, idx_t scan_count, Vector
 //===--------------------------------------------------------------------===//
 // Fetch
 //===--------------------------------------------------------------------===//
+// 获取row_id位置上的数据拷贝到result index上的result Vector去
 void ColumnSegment::FetchRow(ColumnFetchState &state, row_t row_id, Vector &result, idx_t result_idx) {
 	function->fetch_row(*this, state, row_id - this->start, result, result_idx);
 }
 
 void ColumnSegment::InitializeAppend(ColumnAppendState &state) {
-	D_ASSERT(segment_type == ColumnSegmentType::TRANSIENT);
+	D_ASSERT(segment_type == ColumnSegmentType::TRANSIENT); // 初始化Append，需要短暂类型的type？
 }
 
 //===--------------------------------------------------------------------===//
 // Append
 //===--------------------------------------------------------------------===//
+// 从append_data的offset开始的count个添加进该segment,可能没有把所有count个都添加进去
 idx_t ColumnSegment::Append(ColumnAppendState &state, VectorData &append_data, idx_t offset, idx_t count) {
 	D_ASSERT(segment_type == ColumnSegmentType::TRANSIENT);
 	if (!function->append) {
@@ -166,7 +168,7 @@ void ColumnSegment::ConvertToPersistent(block_id_t block_id_p) {
 }
 
 void ColumnSegment::ConvertToPersistent(shared_ptr<BlockHandle> block_p, block_id_t block_id_p, uint32_t offset_p) {
-	D_ASSERT(segment_type == ColumnSegmentType::TRANSIENT);
+	D_ASSERT(segment_type == ColumnSegmentType::TRANSIENT); // 短暂
 	segment_type = ColumnSegmentType::PERSISTENT;
 	block_id = block_id_p;
 	offset = offset_p;
@@ -253,7 +255,7 @@ static void FilterSelectionSwitch(T *vec, T *predicate, SelectionVector &sel, id
 	default:
 		throw NotImplementedException("Unknown comparison type for filter pushed down to table!");
 	}
-	sel.Initialize(new_sel);
+	sel.Initialize(new_sel); // 重新指向
 }
 
 template <bool IS_NULL>
@@ -285,10 +287,11 @@ void ColumnSegment::FilterSelection(SelectionVector &sel, Vector &result, const 
 	case TableFilterType::CONJUNCTION_AND: {
 		auto &conjunction_and = (ConjunctionAndFilter &)filter;
 		for (auto &child_filter : conjunction_and.child_filters) {
-			FilterSelection(sel, result, *child_filter, approved_tuple_count, mask);
+			FilterSelection(sel, result, *child_filter, approved_tuple_count, mask); // 继续递归下去
 		}
 		break;
 	}
+    // TODO: weng 是否支持OR操作？
 	case TableFilterType::CONSTANT_COMPARISON: {
 		auto &constant_filter = (ConstantFilter &)filter;
 		// the inplace loops take the result as the last parameter

@@ -64,7 +64,7 @@ protected:
 
 private:
 	//! The buffer that was actually malloc'd, i.e. the pointer that must be freed when the FileBuffer is destroyed
-	data_ptr_t malloced_buffer;
+	data_ptr_t malloced_buffer; // 这是实际分配的内存大小，有部分拿来做地址对齐浪费了
 	uint64_t malloced_size;
 
 protected:

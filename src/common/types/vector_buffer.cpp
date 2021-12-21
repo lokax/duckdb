@@ -55,7 +55,7 @@ VectorListBuffer::VectorListBuffer(const LogicalType &list_type, idx_t initial_c
 }
 
 void VectorListBuffer::Reserve(idx_t to_reserve) {
-	if (to_reserve > capacity) {
+	if (to_reserve > capacity) { // TODO: 此处什么意思
 		idx_t new_capacity = (to_reserve + STANDARD_VECTOR_SIZE - 1) / STANDARD_VECTOR_SIZE * STANDARD_VECTOR_SIZE;
 		D_ASSERT(new_capacity >= to_reserve);
 		D_ASSERT(new_capacity % STANDARD_VECTOR_SIZE == 0);

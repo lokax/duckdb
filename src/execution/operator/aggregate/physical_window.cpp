@@ -1259,7 +1259,7 @@ static void GeneratePartition(WindowOperatorState &state, WindowGlobalState &gst
 			// Overwrite the collections with the sorted data
 			ScanSortedPartition(state, input, input_types, over, over_types);
 		}
-
+        // TODO: 计算表达式
 		ComputeWindowExpressions(window_exprs, input, output, over, gstate.mode);
 		state.chunks.Merge(input);
 		state.window_results.Merge(output);

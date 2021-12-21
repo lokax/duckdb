@@ -94,6 +94,7 @@ CompressionFunction ConstantGetFunctionValidity(PhysicalType data_type) {
 	                           ConstantScanPartialValidity, ConstantFetchRowValidity, UncompressedFunctions::EmptySkip);
 }
 
+// 不能compress，append，analyaze
 template <class T>
 CompressionFunction ConstantGetFunction(PhysicalType data_type) {
 	return CompressionFunction(CompressionType::COMPRESSION_CONSTANT, data_type, nullptr, nullptr, nullptr, nullptr,

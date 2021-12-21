@@ -10,6 +10,7 @@ struct TransactionVersionOperator {
 	}
 
 	static bool UseDeletedVersion(transaction_t start_time, transaction_t transaction_id, transaction_t id) {
+        // weng: id >= start_time && id != transaction_id
 		return !UseInsertedVersion(start_time, transaction_id, id);
 	}
 };

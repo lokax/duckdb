@@ -91,9 +91,9 @@ private:
 	//! Get the path of the temporary buffer
 	string GetTemporaryPath(block_id_t id);
 
-	void DeleteTemporaryFile(block_id_t id);
+	void DeleteTemporaryFile(block_id_t id); // 这是删除临时文件
 
-	void RequireTemporaryDirectory();
+	void RequireTemporaryDirectory(); // 这是创建目录
 
 	void AddToEvictionQueue(shared_ptr<BlockHandle> &handle);
 

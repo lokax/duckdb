@@ -24,7 +24,7 @@ public:
 	static constexpr idx_t INLINE_LENGTH = 12;
 
 	string_t() = default;
-	explicit string_t(uint32_t len) {
+	explicit string_t(uint32_t len) { 
 		value.inlined.length = len;
 	}
 	string_t(const char *data, uint32_t len) {
@@ -41,8 +41,8 @@ public:
 			memcpy(value.inlined.inlined, data, GetSize());
 		} else {
 			// large string: store pointer
-			memcpy(value.pointer.prefix, data, PREFIX_LENGTH);
-			value.pointer.ptr = (char *)data;
+			memcpy(value.pointer.prefix, data, PREFIX_LENGTH); // 只有前缀字符串自己管理生命周期
+			value.pointer.ptr = (char *)data; // 只保管了指针,没有拥有所有权
 		}
 	}
 	string_t(const char *data) : string_t(data, strlen(data)) { // NOLINT: Allow implicit conversion from `const char*`

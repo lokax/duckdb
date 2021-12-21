@@ -87,7 +87,7 @@ TableCatalogEntry::TableCatalogEntry(Catalog *catalog, SchemaCatalogEntry *schem
 					bound_expressions.push_back(make_unique<BoundReferenceExpression>(columns[key].type, key_nr++));
 					column_ids.push_back(key);
 				}
-				// create an adaptive radix tree around the expressions
+				// create an adaptive radix tree around the expressions // TODO: 这个树以后了解一下
 				auto art = make_unique<ART>(column_ids, move(unbound_expressions), true, unique.is_primary_key);
 				storage->AddIndex(move(art), bound_expressions);
 			}
@@ -484,9 +484,9 @@ string TableCatalogEntry::ToSQL() {
 unique_ptr<CreateTableInfo> TableCatalogEntry::Deserialize(Deserializer &source) {
 	auto info = make_unique<CreateTableInfo>();
 
-	info->schema = source.Read<string>();
-	info->table = source.Read<string>();
-	auto column_count = source.Read<uint32_t>();
+	info->schema = source.Read<string>(); // schema名字
+	info->table = source.Read<string>(); // 表名
+	auto column_count = source.Read<uint32_t>(); // 列的数量
 
 	for (uint32_t i = 0; i < column_count; i++) {
 		auto column = ColumnDefinition::Deserialize(source);

@@ -14,7 +14,7 @@ string PhysicalOperator::GetName() const {
 }
 
 string PhysicalOperator::ToString() const {
-	TreeRenderer renderer;
+	TreeRenderer renderer; // 树渲染器
 	return renderer.ToString(*this);
 }
 

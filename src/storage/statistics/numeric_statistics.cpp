@@ -86,7 +86,7 @@ NumericStatistics::NumericStatistics(LogicalType type_p) : BaseStatistics(move(t
 
 NumericStatistics::NumericStatistics(LogicalType type_p, Value min_p, Value max_p)
     : BaseStatistics(move(type_p)), min(move(min_p)), max(move(max_p)) {
-}
+} // TODO: 为何这里没有validity_stats
 
 void NumericStatistics::Merge(const BaseStatistics &other_p) {
 	BaseStatistics::Merge(other_p);

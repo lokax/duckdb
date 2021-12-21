@@ -293,7 +293,7 @@ idx_t GetTypeIdSize(PhysicalType type) {
 	case PhysicalType::DOUBLE:
 		return sizeof(double);
 	case PhysicalType::VARCHAR:
-		return sizeof(string_t);
+		return sizeof(string_t); // weng: 此处string_t
 	case PhysicalType::INTERVAL:
 		return sizeof(interval_t);
 	case PhysicalType::STRUCT:

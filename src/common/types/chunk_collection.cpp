@@ -54,7 +54,7 @@ void ChunkCollection::Merge(ChunkCollection &other) {
 }
 
 void ChunkCollection::Append(DataChunk &new_chunk) {
-	if (new_chunk.size() == 0) {
+	if (new_chunk.size() == 0) { // 没有东西可以添加，直接滚蛋
 		return;
 	}
 	new_chunk.Verify();
@@ -404,7 +404,7 @@ void ChunkCollection::Reorder(idx_t order_org[]) {
 		}
 	}
 }
-
+// weng fast look up
 Value ChunkCollection::GetValue(idx_t column, idx_t index) {
 	return chunks[LocateChunk(index)]->GetValue(column, index % STANDARD_VECTOR_SIZE);
 }

@@ -131,7 +131,7 @@ struct RLECompressState : public CompressionState {
 	static idx_t MaxRLECount() {
 		auto entry_size = sizeof(T) + sizeof(rle_count_t);
 		auto entry_count = (Storage::BLOCK_SIZE - RLEConstants::RLE_HEADER_SIZE) / entry_size;
-		auto max_vector_count = entry_count / STANDARD_VECTOR_SIZE;
+		auto max_vector_count = entry_count / STANDARD_VECTOR_SIZE;        
 		return max_vector_count * STANDARD_VECTOR_SIZE;
 	}
 
@@ -141,7 +141,6 @@ struct RLECompressState : public CompressionState {
 		auto &config = DBConfig::GetConfig(db);
 		function = config.GetCompressionFunction(CompressionType::COMPRESSION_RLE, type.InternalType());
 		CreateEmptySegment(checkpointer.GetRowGroup().start);
-
 		state.dataptr = (void *)this;
 		max_rle_count = MaxRLECount();
 	}
@@ -195,9 +194,10 @@ struct RLECompressState : public CompressionState {
 		idx_t original_rle_offset = RLEConstants::RLE_HEADER_SIZE + max_rle_count * sizeof(T);
 		idx_t minimal_rle_offset = AlignValue(RLEConstants::RLE_HEADER_SIZE + sizeof(T) * entry_count);
 		idx_t total_segment_size = minimal_rle_offset + counts_size;
+        // 事后进行数据的移动，以减小空间
 		memmove(handle->node->buffer + minimal_rle_offset, handle->node->buffer + original_rle_offset, counts_size);
 		// store the final RLE offset within the segment
-		Store<uint64_t>(minimal_rle_offset, handle->node->buffer);
+		Store<uint64_t>(minimal_rle_offset, handle->node->buffer); // 保存RLE COUNT的OFFSET
 		handle.reset();
 
 		auto &state = checkpointer.GetCheckpointState();
@@ -251,7 +251,7 @@ struct RLEScanState : public SegmentScanState {
 		handle = buffer_manager.Pin(segment.block);
 		entry_pos = 0;
 		position_in_entry = 0;
-		rle_count_offset = Load<uint64_t>(handle->node->buffer + segment.GetBlockOffset());
+		rle_count_offset = Load<uint64_t>(handle->node->buffer + segment.GetBlockOffset()); // 获取RLE COUNYT OFFSET
 		D_ASSERT(rle_count_offset <= Storage::BLOCK_SIZE);
 	}
 

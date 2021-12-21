@@ -126,8 +126,8 @@ template <class T>
 void FixedSizeScanPartial(ColumnSegment &segment, ColumnScanState &state, idx_t scan_count, Vector &result,
                           idx_t result_offset) {
 	auto &scan_state = (FixedSizeScanState &)*state.scan_state;
-	auto start = segment.GetRelativeIndex(state.row_index);
-
+	auto start = segment.GetRelativeIndex(state.row_index); // 获取segement里面的相对位置
+    // scan_state.handle是init scan时Pin出来的Buffer Handle
 	auto data = scan_state.handle->node->buffer + segment.GetBlockOffset();
 	auto source_data = data + start * sizeof(T);
 
@@ -152,8 +152,9 @@ void FixedSizeFetchRow(ColumnSegment &segment, ColumnFetchState &state, row_t ro
 	auto handle = buffer_manager.Pin(segment.block);
 
 	// first fetch the data from the base table
+    // 此处的row id是段内偏移量
 	auto data_ptr = handle->node->buffer + segment.GetBlockOffset() + row_id * sizeof(T);
-
+    // 拷贝数据到Result Vector
 	memcpy(FlatVector::GetData(result) + result_idx * sizeof(T), data_ptr, sizeof(T));
 }
 
@@ -180,6 +181,7 @@ static void AppendLoop(SegmentStatistics &stats, data_ptr_t target, idx_t target
 			}
 		}
 	} else {
+        // 所有数据都是有效的
 		for (idx_t i = 0; i < count; i++) {
 			auto source_idx = adata.sel->get_index(offset + i);
 			auto target_idx = target_offset + i;
@@ -205,7 +207,7 @@ template <class T>
 idx_t FixedSizeAppend(ColumnSegment &segment, SegmentStatistics &stats, VectorData &data, idx_t offset, idx_t count) {
 	auto &buffer_manager = BufferManager::GetBufferManager(segment.db);
 	auto handle = buffer_manager.Pin(segment.block);
-	D_ASSERT(segment.GetBlockOffset() == 0);
+	D_ASSERT(segment.GetBlockOffset() == 0); // 必须0？因为是短暂 type的原因吧？
 
 	auto target_ptr = handle->node->buffer;
 	idx_t max_tuple_count = Storage::BLOCK_SIZE / sizeof(T);

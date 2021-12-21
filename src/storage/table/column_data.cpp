@@ -278,6 +278,8 @@ idx_t ColumnData::Fetch(ColumnScanState &state, row_t row_id, Vector &result) {
 	D_ASSERT(row_id >= 0);
 	D_ASSERT(idx_t(row_id) >= start);
 	// perform the fetch within the segment
+    // Vector可能跨多个Segment,因此不能直接通过row_id进行索引,因为我们要Scan整个Vector的数据
+    // 所以我们要先计算所属于的Vector的row id是多少
 	state.row_index = start + ((row_id - start) / STANDARD_VECTOR_SIZE * STANDARD_VECTOR_SIZE);
 	state.current = (ColumnSegment *)data.GetSegment(state.row_index);
 	state.internal_index = state.current->start;
@@ -286,26 +288,26 @@ idx_t ColumnData::Fetch(ColumnScanState &state, row_t row_id, Vector &result) {
 
 void ColumnData::FetchRow(Transaction &transaction, ColumnFetchState &state, row_t row_id, Vector &result,
                           idx_t result_idx) {
-	auto segment = (ColumnSegment *)data.GetSegment(row_id);
+	auto segment = (ColumnSegment *)data.GetSegment(row_id); // GetSegment内部加锁
 
 	// now perform the fetch within the segment
-	segment->FetchRow(state, row_id, result, result_idx);
+	segment->FetchRow(state, row_id, result, result_idx); // 从base table中获取row
 	// merge any updates made to this row
-	lock_guard<mutex> update_guard(update_lock);
+	lock_guard<mutex> update_guard(update_lock); // 获取更新锁
 	if (updates) {
-		updates->FetchRow(transaction, row_id, result, result_idx);
+		updates->FetchRow(transaction, row_id, result, result_idx); // 合并更新过的数据
 	}
 }
 
 void ColumnData::Update(Transaction &transaction, idx_t column_index, Vector &update_vector, row_t *row_ids,
                         idx_t offset, idx_t update_count) {
-	lock_guard<mutex> update_guard(update_lock);
+	lock_guard<mutex> update_guard(update_lock); // 加上update lock
 	if (!updates) {
 		updates = make_unique<UpdateSegment>(*this);
 	}
 	Vector base_vector(type);
 	ColumnScanState state;
-	auto fetch_count = Fetch(state, row_ids[offset], base_vector);
+	auto fetch_count = Fetch(state, row_ids[offset], base_vector); // 获取base table data
 
 	base_vector.Normalify(fetch_count);
 	updates->Update(transaction, column_index, update_vector, row_ids, offset, update_count, base_vector);

@@ -385,9 +385,9 @@ void ValidityFetchRow(ColumnSegment &segment, ColumnFetchState &state, row_t row
 //===--------------------------------------------------------------------===//
 unique_ptr<CompressedSegmentState> ValidityInitSegment(ColumnSegment &segment, block_id_t block_id) {
 	auto &buffer_manager = BufferManager::GetBufferManager(segment.db);
-	if (block_id == INVALID_BLOCK) {
+	if (block_id == INVALID_BLOCK) {  
 		auto handle = buffer_manager.Pin(segment.block);
-		memset(handle->node->buffer, 0xFF, Storage::BLOCK_SIZE);
+		memset(handle->node->buffer, 0xFF, Storage::BLOCK_SIZE); // 全设置成1
 	}
 	return nullptr;
 }

@@ -27,11 +27,12 @@ public:
 public:
 	template <class T>
 	static int UnsignedLength(T value);
-	template <class SIGNED, class UNSIGNED>
-	static int SignedLength(SIGNED value) {
-		int sign = -(value < 0);
-		UNSIGNED unsigned_value = (value ^ sign) - sign;
-		return UnsignedLength(unsigned_value) - sign;
+	template <class SIGNED, class UNSIGNED> 
+	static int SignedLength(SIGNED value) {  // 1111 1010 --> -6
+		int sign = -(value < 0); // 1111 1111 1111 1111 1111 1111 1111 1111
+		UNSIGNED unsigned_value = (value ^ sign) - sign; // 0000 0101 - (-1) --> 1000 0000
+        // 0000 0101 -->  0000 0110 --> 6
+		return UnsignedLength(unsigned_value) - sign; // 1 -(-1) --> 此处应该表示"-6"所需要的空间，maybe!
 	}
 
 	// Formats value in reverse and returns a pointer to the beginning.

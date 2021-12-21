@@ -127,7 +127,7 @@ void CheckpointManager::WriteSchema(SchemaCatalogEntry &schema) {
 	vector<TableCatalogEntry *> tables;
 	vector<ViewCatalogEntry *> views;
 	schema.Scan(CatalogType::TABLE_ENTRY, [&](CatalogEntry *entry) {
-		if (entry->internal) {
+		if (entry->internal) { // 内部entry不动
 			return;
 		}
 		if (entry->type == CatalogType::TABLE_ENTRY) {

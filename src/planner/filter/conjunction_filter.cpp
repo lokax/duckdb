@@ -11,7 +11,7 @@ FilterPropagateResult ConjunctionOrFilter::CheckStatistics(BaseStatistics &stats
 	for (auto &filter : child_filters) {
 		auto prune_result = filter->CheckStatistics(stats);
 		if (prune_result == FilterPropagateResult::NO_PRUNING_POSSIBLE) {
-			return FilterPropagateResult::NO_PRUNING_POSSIBLE;
+			return FilterPropagateResult::NO_PRUNING_POSSIBLE; // TODO: 怪
 		} else if (prune_result == FilterPropagateResult::FILTER_ALWAYS_TRUE) {
 			return FilterPropagateResult::FILTER_ALWAYS_TRUE;
 		}

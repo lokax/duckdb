@@ -75,7 +75,7 @@ void WriteAheadLog::WriteDropTable(TableCatalogEntry *entry) {
 		return;
 	}
 	writer->Write<WALType>(WALType::DROP_TABLE);
-	writer->WriteString(entry->schema->name);
+	writer->WriteString(entry->schema->name); //schema相当于mysql的库?
 	writer->WriteString(entry->name);
 }
 

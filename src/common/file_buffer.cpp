@@ -52,7 +52,7 @@ void FileBuffer::SetMallocedSize(uint64_t &bufsiz) {
 		D_ASSERT(bufsiz % sector_size == 0);
 		D_ASSERT(bufsiz >= sector_size);
 		// we add (sector_size - 1) to ensure that we can align the buffer to sector_size
-		malloced_size = bufsiz + (sector_size - 1);
+		malloced_size = bufsiz + (sector_size - 1); // 这里还加上(sector_size - 1)是为了做地址对齐
 	} else {
 		malloced_size = bufsiz;
 	}
@@ -65,7 +65,7 @@ void FileBuffer::Construct(uint64_t bufsiz) {
 	if (type == FileBufferType::BLOCK) {
 		const int sector_size = Storage::SECTOR_SIZE;
 		// round to multiple of sector_size
-		uint64_t num = (uint64_t)malloced_buffer;
+		uint64_t num = (uint64_t)malloced_buffer; // 此处的一系列操作是为了做地址的对齐
 		uint64_t remainder = num % sector_size;
 		if (remainder != 0) {
 			num = num + sector_size - remainder;

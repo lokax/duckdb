@@ -327,8 +327,8 @@ void UpdateSegment::FetchCommittedRange(idx_t start_row, idx_t count, Vector &re
 	D_ASSERT(result.GetVectorType() == VectorType::FLAT_VECTOR);
 
 	idx_t end_row = start_row + count;
-	idx_t start_vector = start_row / STANDARD_VECTOR_SIZE;
-	idx_t end_vector = (end_row - 1) / STANDARD_VECTOR_SIZE;
+	idx_t start_vector = start_row / STANDARD_VECTOR_SIZE; // 1
+	idx_t end_vector = (end_row - 1) / STANDARD_VECTOR_SIZE; // 1
 	D_ASSERT(start_vector <= end_vector);
 	D_ASSERT(end_vector < RowGroup::ROW_GROUP_VECTOR_COUNT);
 
@@ -425,13 +425,24 @@ void UpdateSegment::FetchRow(Transaction &transaction, idx_t row_id, Vector &res
 	if (!root) {
 		return;
 	}
+
+    // 假设start是10，vector size是50， row_id是86
+    // (86 - 10) --> 76 --> (76 / 50) --> 1
+    // (10 .. 60) -- (70 .. 120)
+    // row_in_vector --> (86 - 50) --> 36
 	idx_t vector_index = (row_id - column_data.start) / STANDARD_VECTOR_SIZE;
 	if (!root->info[vector_index]) {
 		return;
 	}
-	idx_t row_in_vector = row_id - vector_index * STANDARD_VECTOR_SIZE;
+	idx_t row_in_vector = row_id - vector_index * STANDARD_VECTOR_SIZE; // 是bug吗，是否应该加上group start
 	fetch_row_function(transaction.start_time, transaction.transaction_id, root->info[vector_index]->info.get(),
 	                   row_in_vector, result, result_idx);
+
+
+    // (86 - 10) / 50 --> 1
+	// idx_t vector_index = (first_id - column_data.start) / STANDARD_VECTOR_SIZE;
+    // 10 + 1 * 50 --> 60
+	// idx_t vector_offset = id -  (column_data.start + vector_index * STANDARD_VECTOR_SIZE);
 }
 
 //===--------------------------------------------------------------------===//
@@ -569,7 +580,7 @@ void UpdateSegment::InitializeUpdateInfo(UpdateInfo &info, row_t *ids, const Sel
 	info.N = count;
 	for (idx_t i = 0; i < count; i++) {
 		auto idx = sel.get_index(i);
-		auto id = ids[idx];
+		auto id = ids[idx]; 
 		D_ASSERT(idx_t(id) >= vector_offset && idx_t(id) < vector_offset + STANDARD_VECTOR_SIZE);
 		info.tuples[i] = id - vector_offset;
 	};
@@ -677,6 +688,8 @@ static UpdateSegment::initialize_update_function_t GetInitializeUpdateFunction(P
 template <class F1, class F2, class F3>
 static idx_t MergeLoop(row_t a[], sel_t b[], idx_t acount, idx_t bcount, idx_t aoffset, F1 merge, F2 pick_a, F3 pick_b,
                        const SelectionVector &asel) {
+
+    // weng MergeLoop(ids, base_info->tuples, count, base_info->N, base_id, merge, pick_new, pick_old, sel);
 	idx_t aidx = 0, bidx = 0;
 	idx_t count = 0;
 	while (aidx < acount && bidx < bcount) {
@@ -728,6 +741,7 @@ template <class T, class V, class OP = ExtractStandardEntry>
 static void MergeUpdateLoopInternal(UpdateInfo *base_info, V *base_table_data, UpdateInfo *update_info,
                                     V *update_vector_data, row_t *ids, idx_t count, const SelectionVector &sel) {
 	auto base_id = base_info->segment->column_data.start + base_info->vector_index * STANDARD_VECTOR_SIZE;
+
 #ifdef DEBUG
 	// all of these should be sorted, otherwise the below algorithm does not work
 	for (idx_t i = 1; i < count; i++) {
@@ -799,13 +813,13 @@ static void MergeUpdateLoopInternal(UpdateInfo *base_info, V *base_table_data, U
 		update_info_offset++;
 	}
 	// now copy them back
-	update_info->N = result_offset;
+	update_info->N = result_offset; // 把所有的都拷贝回update_info中去？
 	memcpy(update_info_data, result_values, result_offset * sizeof(T));
 	memcpy(update_info->tuples, result_ids, result_offset * sizeof(sel_t));
 
 	// now we merge the new values into the base_info
 	result_offset = 0;
-	auto pick_new = [&](idx_t id, idx_t aidx, idx_t count) {
+	auto pick_new = [&](idx_t id, idx_t aidx, idx_t count) { // update_vector_data是现在要更新的数据？
 		result_values[result_offset] = OP::template Extract<T, V>(update_vector_data, aidx);
 		result_ids[result_offset] = id;
 		result_offset++;
@@ -834,6 +848,7 @@ static void MergeValidityLoop(UpdateInfo *base_info, Vector &base_data, UpdateIn
 	                                                                  &update_validity, ids, count, sel);
 }
 
+// weng: merge_update_function(base_info, base_data, node, update, ids, count, sel);
 template <class T>
 static void MergeUpdateLoop(UpdateInfo *base_info, Vector &base_data, UpdateInfo *update_info, Vector &update,
                             row_t *ids, idx_t count, const SelectionVector &sel) {
@@ -1077,7 +1092,9 @@ void UpdateSegment::Update(Transaction &transaction, idx_t column_index, Vector 
 	// get the vector index based on the first id
 	// we assert that all updates must be part of the same vector
 	auto first_id = ids[sel.get_index(0)];
+    // (86 - 10) / 50 --> 1
 	idx_t vector_index = (first_id - column_data.start) / STANDARD_VECTOR_SIZE;
+    // 10 + 1 * 50 --> 60
 	idx_t vector_offset = column_data.start + vector_index * STANDARD_VECTOR_SIZE;
 
 	D_ASSERT(idx_t(first_id) >= column_data.start);
@@ -1089,7 +1106,7 @@ void UpdateSegment::Update(Transaction &transaction, idx_t column_index, Vector 
 	if (root->info[vector_index]) {
 		// there is already a version here, check if there are any conflicts and search for the node that belongs to
 		// this transaction in the version chain
-		auto base_info = root->info[vector_index]->info.get();
+		auto base_info = root->info[vector_index]->info.get(); // base info也许是一个dummy节点？
 		CheckForConflicts(base_info->next, transaction, ids, count, vector_offset, node);
 
 		// there are no conflicts
