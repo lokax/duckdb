@@ -354,6 +354,7 @@ bool DataTable::NextParallelScan(ClientContext &context, ParallelTableScanState 
 	}
 }
 
+// 扫描数据
 void DataTable::Scan(Transaction &transaction, DataChunk &result, TableScanState &state, vector<column_t> &column_ids) {
 	// scan the persistent segments
 	if (ScanBaseTable(transaction, result, state)) {
@@ -387,6 +388,7 @@ bool DataTable::ScanBaseTable(Transaction &transaction, DataChunk &result, Table
 	return false;
 }
 
+// index scan会用到吗
 //===--------------------------------------------------------------------===//
 // Fetch
 //===--------------------------------------------------------------------===//
@@ -573,7 +575,7 @@ void DataTable::ScanTableSegment(idx_t row_start, idx_t count, const std::functi
 
 	idx_t current_row = row_start_aligned;
 	while (current_row < end) {
-		ScanCreateIndex(state, chunk, TableScanType::TABLE_SCAN_COMMITTED_ROWS);
+		ScanCreateIndex(state, chunk, TableScanType::TABLE_SCAN_COMMITTED_ROWS); // 扫描已经提交的行
 		if (chunk.size() == 0) {
 			break;
 		}
@@ -601,8 +603,9 @@ void DataTable::WriteToLog(WriteAheadLog &log, idx_t row_start, idx_t count) {
 	ScanTableSegment(row_start, count, [&](DataChunk &chunk) { log.WriteInsert(chunk); });
 }
 
+// 提交更新
 void DataTable::CommitAppend(transaction_t commit_id, idx_t row_start, idx_t count) {
-	lock_guard<mutex> lock(append_lock);
+	lock_guard<mutex> lock(append_lock); // 加更新锁
 
 	auto row_group = (RowGroup *)row_groups->GetSegment(row_start);
 	idx_t current_row = row_start;
@@ -620,7 +623,7 @@ void DataTable::CommitAppend(transaction_t commit_id, idx_t row_start, idx_t cou
 		}
 		row_group = (RowGroup *)row_group->next.get();
 	}
-	info->cardinality += count; // 提交后才?
+	info->cardinality += count; // 提交后才增加?
 }
 
 void DataTable::RevertAppendInternal(idx_t start_row, idx_t count) {
@@ -655,14 +658,15 @@ void DataTable::RevertAppendInternal(idx_t start_row, idx_t count) {
 	info.RevertAppend(start_row);
 }
 
+// 回滚更新
 void DataTable::RevertAppend(idx_t start_row, idx_t count) {
-	lock_guard<mutex> lock(append_lock); // 加append lock
+	lock_guard<mutex> lock(append_lock); // 加append lock, 创建index时也会加锁
 
-	if (!info->indexes.Empty()) {
+	if (!info->indexes.Empty()) { // 如果索引不是空
 		idx_t current_row_base = start_row;
 		row_t row_data[STANDARD_VECTOR_SIZE];
 		Vector row_identifiers(LOGICAL_ROW_TYPE, (data_ptr_t)row_data);
-		ScanTableSegment(start_row, count, [&](DataChunk &chunk) {
+		ScanTableSegment(start_row, count, [&](DataChunk &chunk) { // 扫描
 			for (idx_t i = 0; i < chunk.size(); i++) {
 				row_data[i] = current_row_base + i;
 			}
@@ -737,7 +741,7 @@ void DataTable::RemoveFromIndexes(TableAppendState &state, DataChunk &chunk, Vec
 void DataTable::RemoveFromIndexes(Vector &row_identifiers, idx_t count) {
 	D_ASSERT(is_root);
 	auto row_ids = FlatVector::GetData<row_t>(row_identifiers);
-
+                                        
 	// figure out which row_group to fetch from
 	auto row_group = (RowGroup *)row_groups->GetSegment(row_ids[0]);
 	auto row_group_vector_idx = (row_ids[0] - row_group->start) / STANDARD_VECTOR_SIZE;
@@ -819,6 +823,7 @@ idx_t DataTable::Delete(TableCatalogEntry &table, ClientContext &context, Vector
 	}
 }
 
+// update和delete是不会冲突的
 //===--------------------------------------------------------------------===//
 // Update
 //===--------------------------------------------------------------------===//
@@ -899,6 +904,7 @@ void DataTable::VerifyUpdateConstraints(TableCatalogEntry &table, DataChunk &chu
 #endif
 }
 
+// update和delete是不会冲突的
 void DataTable::Update(TableCatalogEntry &table, ClientContext &context, Vector &row_ids,
                        const vector<column_t> &column_ids, DataChunk &updates) {
 	D_ASSERT(row_ids.GetType().InternalType() == ROW_TYPE);
@@ -1036,7 +1042,7 @@ void DataTable::AddIndex(unique_ptr<Index> index, const vector<unique_ptr<Expres
 
 	// initialize an index scan
 	CreateIndexScanState state;
-	InitializeCreateIndexScan(state, column_ids);
+	InitializeCreateIndexScan(state, column_ids); // 会加锁
 
 	if (!is_root) {
 		throw TransactionException("Transaction conflict: cannot add an index to a table that has been altered!");
@@ -1050,7 +1056,7 @@ void DataTable::AddIndex(unique_ptr<Index> index, const vector<unique_ptr<Expres
 		while (true) {
 			intermediate.Reset();
 			// scan a new chunk from the table to index
-			ScanCreateIndex(state, intermediate, TableScanType::TABLE_SCAN_COMMITTED_ROWS_OMIT_PERMANENTLY_DELETED);
+			ScanCreateIndex(state, intermediate, TableScanType::TABLE_SCAN_COMMITTED_ROWS_OMIT_PERMANENTLY_DELETED); // 
 			if (intermediate.size() == 0) {
 				// finished scanning for index creation
 				// release all locks
@@ -1098,10 +1104,10 @@ BlockPointer DataTable::Checkpoint(TableDataWriter &writer) {
 	// store the current position in the metadata writer
 	// this is where the row groups for this table start
 	auto &meta_writer = writer.GetMetaWriter();
-	auto pointer = meta_writer.GetBlockPointer();
+    auto pointer = meta_writer.GetBlockPointer();
 
 	for (auto &stats : global_stats) {
-		stats->Serialize(meta_writer);
+		stats->Serialize(meta_writer); // 这是全局的统计数据吗
 	}
 	// now start writing the row group pointers to disk
 	meta_writer.Write<uint64_t>(row_group_pointers.size());

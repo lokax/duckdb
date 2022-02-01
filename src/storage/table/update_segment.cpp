@@ -1,10 +1,13 @@
 #include "duckdb/storage/table/update_segment.hpp"
-#include "duckdb/transaction/update_info.hpp"
-#include "duckdb/storage/table/column_data.hpp"
+
 #include "duckdb/storage/statistics/numeric_statistics.hpp"
-#include "duckdb/transaction/transaction.hpp"
 #include "duckdb/storage/statistics/string_statistics.hpp"
 #include "duckdb/storage/statistics/validity_statistics.hpp"
+#include "duckdb/storage/table/column_data.hpp"
+#include "duckdb/transaction/transaction.hpp"
+#include "duckdb/transaction/update_info.hpp"
+
+#include <iostream>
 
 namespace duckdb {
 
@@ -327,7 +330,7 @@ void UpdateSegment::FetchCommittedRange(idx_t start_row, idx_t count, Vector &re
 	D_ASSERT(result.GetVectorType() == VectorType::FLAT_VECTOR);
 
 	idx_t end_row = start_row + count;
-	idx_t start_vector = start_row / STANDARD_VECTOR_SIZE; // 1
+	idx_t start_vector = start_row / STANDARD_VECTOR_SIZE;   // 1
 	idx_t end_vector = (end_row - 1) / STANDARD_VECTOR_SIZE; // 1
 	D_ASSERT(start_vector <= end_vector);
 	D_ASSERT(end_vector < RowGroup::ROW_GROUP_VECTOR_COUNT);
@@ -426,10 +429,10 @@ void UpdateSegment::FetchRow(Transaction &transaction, idx_t row_id, Vector &res
 		return;
 	}
 
-    // 假设start是10，vector size是50， row_id是86
-    // (86 - 10) --> 76 --> (76 / 50) --> 1
-    // (10 .. 60) -- (70 .. 120)
-    // row_in_vector --> (86 - 50) --> 36
+	// 假设start是10，vector size是50， row_id是86
+	// (86 - 10) --> 76 --> (76 / 50) --> 1
+	// (10 .. 60) -- (70 .. 120)
+	// row_in_vector --> (86 - 50) --> 36
 	idx_t vector_index = (row_id - column_data.start) / STANDARD_VECTOR_SIZE;
 	if (!root->info[vector_index]) {
 		return;
@@ -438,10 +441,9 @@ void UpdateSegment::FetchRow(Transaction &transaction, idx_t row_id, Vector &res
 	fetch_row_function(transaction.start_time, transaction.transaction_id, root->info[vector_index]->info.get(),
 	                   row_in_vector, result, result_idx);
 
-
-    // (86 - 10) / 50 --> 1
+	// (86 - 10) / 50 --> 1
 	// idx_t vector_index = (first_id - column_data.start) / STANDARD_VECTOR_SIZE;
-    // 10 + 1 * 50 --> 60
+	// 10 + 1 * 50 --> 60
 	// idx_t vector_offset = id -  (column_data.start + vector_index * STANDARD_VECTOR_SIZE);
 }
 
@@ -532,7 +534,7 @@ void UpdateSegment::CleanupUpdate(UpdateInfo *info) {
 //===--------------------------------------------------------------------===//
 // Check for conflicts in update
 //===--------------------------------------------------------------------===//
-static void CheckForConflicts(UpdateInfo *info, Transaction &transaction, row_t *ids, idx_t count, row_t offset,
+static void CheckForConflicts(UpdateInfo *info, Transaction &transaction, row_t *ids, const SelectionVector &sel, idx_t count, row_t offset,
                               UpdateInfo *&node) {
 	if (!info) {
 		return;
@@ -545,7 +547,8 @@ static void CheckForConflicts(UpdateInfo *info, Transaction &transaction, row_t 
 		// as both ids and info->tuples are sorted, this is similar to a merge join
 		idx_t i = 0, j = 0;
 		while (true) {
-			auto id = ids[i] - offset;
+           // std::cout << "sel get = " << sel.get_index(i) << std::endl;
+			auto id = ids[sel.get_index(i)] - offset;
 			if (id == info->tuples[j]) {
 				throw TransactionException("Conflict on update!");
 			} else if (id < info->tuples[j]) {
@@ -563,7 +566,7 @@ static void CheckForConflicts(UpdateInfo *info, Transaction &transaction, row_t 
 			}
 		}
 	}
-	CheckForConflicts(info->next, transaction, ids, count, offset, node);
+	CheckForConflicts(info->next, transaction, ids, sel, count, offset, node);
 }
 
 //===--------------------------------------------------------------------===//
@@ -580,7 +583,7 @@ void UpdateSegment::InitializeUpdateInfo(UpdateInfo &info, row_t *ids, const Sel
 	info.N = count;
 	for (idx_t i = 0; i < count; i++) {
 		auto idx = sel.get_index(i);
-		auto id = ids[idx]; 
+		auto id = ids[idx];
 		D_ASSERT(idx_t(id) >= vector_offset && idx_t(id) < vector_offset + STANDARD_VECTOR_SIZE);
 		info.tuples[i] = id - vector_offset;
 	};
@@ -634,12 +637,12 @@ static void InitializeUpdateData(UpdateInfo *base_info, Vector &base_data, Updat
 	auto tuple_data = (T *)update_info->tuple_data;
 
 	for (idx_t i = 0; i < update_info->N; i++) {
-		auto idx = sel.get_index(i);
+		auto idx = sel.get_index(i); // update tuple data无序，所以需要通过选择向量来实现map语义
 		tuple_data[i] = update_data[idx];
 	}
 
 	auto base_array_data = FlatVector::GetData<T>(base_data);
-	auto base_tuple_data = (T *)base_info->tuple_data;
+	auto base_tuple_data = (T *)base_info->tuple_data; // base tuple data本身有序
 	for (idx_t i = 0; i < base_info->N; i++) {
 		base_tuple_data[i] =
 		    UpdateSelectElement::Operation<T>(base_info->segment, base_array_data[base_info->tuples[i]]);
@@ -689,7 +692,7 @@ template <class F1, class F2, class F3>
 static idx_t MergeLoop(row_t a[], sel_t b[], idx_t acount, idx_t bcount, idx_t aoffset, F1 merge, F2 pick_a, F3 pick_b,
                        const SelectionVector &asel) {
 
-    // weng MergeLoop(ids, base_info->tuples, count, base_info->N, base_id, merge, pick_new, pick_old, sel);
+	// weng MergeLoop(ids, base_info->tuples, count, base_info->N, base_id, merge, pick_new, pick_old, sel);
 	idx_t aidx = 0, bidx = 0;
 	idx_t count = 0;
 	while (aidx < acount && bidx < bcount) {
@@ -837,7 +840,7 @@ static void MergeUpdateLoopInternal(UpdateInfo *base_info, V *base_table_data, U
 
 	base_info->N = result_offset;
 	memcpy(base_info_data, result_values, result_offset * sizeof(T));
-	memcpy(base_info->tuples, result_ids, result_offset * sizeof(sel_t));
+	memcpy(base_info->tuples, result_ids, result_offset * sizeof(sel_t)); // base info data就是最新数据吧
 }
 
 static void MergeValidityLoop(UpdateInfo *base_info, Vector &base_data, UpdateInfo *update_info, Vector &update,
@@ -1065,7 +1068,7 @@ void UpdateSegment::Update(Transaction &transaction, idx_t column_index, Vector 
 	// obtain an exclusive lock
 	auto write_lock = lock.GetExclusiveLock();
 
-	update.Normalify(count);
+	update.Normalify(count); // 为什么要normalify呢
 
 	// update statistics
 	SelectionVector sel;
@@ -1075,6 +1078,11 @@ void UpdateSegment::Update(Transaction &transaction, idx_t column_index, Vector 
 	}
 	if (count == 0) {
 		return;
+	}
+
+	std::cout << "before" << std::endl;
+	for (int i = 0; i < count; ++i) {
+		std::cout << "i = " << i << ", ids[" << i << "] = " << ids[i] << std::endl;
 	}
 
 	// subsequent algorithms used by the update require row ids to be (1) sorted, and (2) unique
@@ -1088,13 +1096,17 @@ void UpdateSegment::Update(Transaction &transaction, idx_t column_index, Vector 
 	if (!root) {
 		root = make_unique<UpdateNode>();
 	}
+	std::cout << "after" << std::endl;
+	for (int i = 0; i < count; ++i) {
+		std::cout << "i = " << i << ", ids[" << i << "] = " << ids[i] << std::endl;
+	}
 
 	// get the vector index based on the first id
 	// we assert that all updates must be part of the same vector
 	auto first_id = ids[sel.get_index(0)];
-    // (86 - 10) / 50 --> 1
+	// (86 - 10) / 50 --> 1
 	idx_t vector_index = (first_id - column_data.start) / STANDARD_VECTOR_SIZE;
-    // 10 + 1 * 50 --> 60
+	// 10 + 1 * 50 --> 60
 	idx_t vector_offset = column_data.start + vector_index * STANDARD_VECTOR_SIZE;
 
 	D_ASSERT(idx_t(first_id) >= column_data.start);
@@ -1107,7 +1119,7 @@ void UpdateSegment::Update(Transaction &transaction, idx_t column_index, Vector 
 		// there is already a version here, check if there are any conflicts and search for the node that belongs to
 		// this transaction in the version chain
 		auto base_info = root->info[vector_index]->info.get(); // base info也许是一个dummy节点？
-		CheckForConflicts(base_info->next, transaction, ids, count, vector_offset, node);
+		CheckForConflicts(base_info->next, transaction, ids, sel, count, vector_offset, node);
 
 		// there are no conflicts
 		// first, check if this thread has already done any updates

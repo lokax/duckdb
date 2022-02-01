@@ -53,7 +53,7 @@ SinkResultType PhysicalInsert::Sink(ExecutionContext &context, GlobalSinkState &
 		for (idx_t i = 0; i < table->columns.size(); i++) {
 			if (column_index_map[i] == INVALID_INDEX) {
 				// insert default value
-				istate.default_executor.ExecuteExpression(i, istate.insert_chunk.data[i]);
+				istate.default_executor.ExecuteExpression(i, istate.insert_chunk.data[i]); // 获取默认值
 			} else {
 				// get value from child chunk
 				D_ASSERT((idx_t)column_index_map[i] < chunk.ColumnCount());

@@ -130,7 +130,7 @@ idx_t JoinHashTable::PrepareKeys(DataChunk &keys, unique_ptr<VectorData[]> &key_
 	// figure out which keys are NULL, and create a selection vector out of them
 	current_sel = &FlatVector::INCREMENTAL_SELECTION_VECTOR;
 	idx_t added_count = keys.size();
-	if (build_side && IsRightOuterJoin(join_type)) {
+	if (build_side && IsRightOuterJoin(join_type)) { // right或者outer join，不能省略掉build side的null key
 		// in case of a right or full outer join, we cannot remove NULL keys from the build side
 		return added_count;
 	}
@@ -655,8 +655,8 @@ void ScanStructure::NextLeftJoin(DataChunk &keys, DataChunk &left, DataChunk &re
 	// a LEFT OUTER JOIN is identical to an INNER JOIN except all tuples that do
 	// not have a match must return at least one tuple (with the right side set
 	// to NULL in every column)
-	NextInnerJoin(keys, left, result);
-	if (result.size() == 0) {
+	NextInnerJoin(keys, left, result); // 切记，同一个input不断进入这里
+	if (result.size() == 0) { // 所以最终才会导致result size为0
 		// no entries left from the normal join
 		// fill in the result of the remaining left tuples
 		// together with NULL values on the right-hand side
@@ -739,7 +739,7 @@ void JoinHashTable::ScanFullOuter(DataChunk &result, JoinHTScanState &state) {
 		for (; state.block_position < block_collection->blocks.size(); state.block_position++, state.position = 0) {
 			auto &block = block_collection->blocks[state.block_position];
 			auto &handle = pinned_handles[state.block_position];
-			auto baseptr = handle->node->buffer;
+			auto baseptr = handle->node->buffer; // 拿出buffer
 			for (; state.position < block.count; state.position++) {
 				auto tuple_base = baseptr + state.position * entry_size;
 				auto found_match = Load<bool>(tuple_base + tuple_size);
@@ -758,10 +758,10 @@ void JoinHashTable::ScanFullOuter(DataChunk &result, JoinHTScanState &state) {
 	}
 	result.SetCardinality(found_entries);
 	if (found_entries > 0) {
-		idx_t left_column_count = result.ColumnCount() - build_types.size();
+		idx_t left_column_count = result.ColumnCount() - build_types.size(); // left column的列数
 		const auto &sel_vector = FlatVector::INCREMENTAL_SELECTION_VECTOR;
 		// set the left side as a constant NULL
-		for (idx_t i = 0; i < left_column_count; i++) {
+		for (idx_t i = 0; i < left_column_count; i++) { // 左列设置成null
 			Vector &vec = result.data[i];
 			vec.SetVectorType(VectorType::CONSTANT_VECTOR);
 			ConstantVector::SetNull(vec, true);
@@ -770,8 +770,8 @@ void JoinHashTable::ScanFullOuter(DataChunk &result, JoinHTScanState &state) {
 		for (idx_t i = 0; i < build_types.size(); i++) {
 			auto &vector = result.data[left_column_count + i];
 			D_ASSERT(vector.GetType() == build_types[i]);
-			const auto col_no = condition_types.size() + i;
-			const auto col_offset = layout.GetOffsets()[col_no];
+			const auto col_no = condition_types.size() + i; // 列index
+			const auto col_offset = layout.GetOffsets()[col_no]; // 列偏移量
 			RowOperations::Gather(addresses, sel_vector, vector, sel_vector, found_entries, col_offset, col_no);
 		}
 	}

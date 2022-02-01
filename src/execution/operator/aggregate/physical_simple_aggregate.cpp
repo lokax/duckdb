@@ -20,7 +20,7 @@ PhysicalSimpleAggregate::PhysicalSimpleAggregate(vector<LogicalType> types, vect
 struct AggregateState {
 	explicit AggregateState(const vector<unique_ptr<Expression>> &aggregate_expressions) {
 		for (auto &aggregate : aggregate_expressions) {
-			D_ASSERT(aggregate->GetExpressionClass() == ExpressionClass::BOUND_AGGREGATE);
+			D_ASSERT(aggregate->GetExpressionClass() == ExpressionClass::BOUND_AGGREGATE); // aggreate class
 			auto &aggr = (BoundAggregateExpression &)*aggregate;
 			auto state = unique_ptr<data_t[]>(new data_t[aggr.function.state_size()]);
 			aggr.function.initialize(state.get());

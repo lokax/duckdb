@@ -106,7 +106,7 @@ static void ScatterNestedVector(Vector &vec, VectorData &col, Vector &rows, data
 
 void RowOperations::Scatter(DataChunk &columns, VectorData col_data[], const RowLayout &layout, Vector &rows,
                             RowDataCollection &string_heap, const SelectionVector &sel, idx_t count) {
-	if (count == 0) {
+	if (count == 0) { // 没东西，直接返回
 		return;
 	}
 
@@ -150,15 +150,15 @@ void RowOperations::Scatter(DataChunk &columns, VectorData col_data[], const Row
 		}
 
 		// Build out the buffer space
-		string_heap.Build(count, data_locations, entry_sizes);
+		string_heap.Build(count, data_locations, entry_sizes); // 获取指针
 
 		// Serialize information that is needed for swizzling if the computation goes out-of-core
-		const idx_t heap_pointer_offset = layout.GetHeapPointerOffset();
+		const idx_t heap_pointer_offset = layout.GetHeapPointerOffset(); // 获取heap_ptr的偏移量
 		for (idx_t i = 0; i < count; i++) {
 			auto row_idx = sel.get_index(i);
 			auto row = ptrs[row_idx];
 			// Pointer to this row in the heap block
-			Store<data_ptr_t>(data_locations[i], row + heap_pointer_offset);
+			Store<data_ptr_t>(data_locations[i], row + heap_pointer_offset); // 把string_heap中的指针存进这个偏移量指定的位置
 			// Row size is stored in the heap in front of each row
 			Store<uint32_t>(entry_sizes[i], data_locations[i]);
 			data_locations[i] += sizeof(uint32_t);
@@ -168,7 +168,7 @@ void RowOperations::Scatter(DataChunk &columns, VectorData col_data[], const Row
 	for (idx_t col_no = 0; col_no < types.size(); col_no++) {
 		auto &vec = columns.data[col_no];
 		auto &col = col_data[col_no];
-		auto col_offset = offsets[col_no];
+		auto col_offset = offsets[col_no]; // 列偏移量
 
 		switch (types[col_no].InternalType()) {
 		case PhysicalType::BOOL:

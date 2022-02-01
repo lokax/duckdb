@@ -213,7 +213,7 @@ unique_ptr<BoundQueryNode> Binder::BindNode(SelectNode &statement) {
 		projection_map[expr.get()] = i;
 		result->original_expressions.push_back(expr->Copy());
 	}
-	result->column_count = statement.select_list.size();
+	result->column_count = statement.select_list.size(); // 列的数量
 
 	// first visit the WHERE clause
 	// the WHERE clause happens before the GROUP BY, PROJECTION or HAVING clauses
@@ -224,6 +224,7 @@ unique_ptr<BoundQueryNode> Binder::BindNode(SelectNode &statement) {
 		result->where_clause = where_binder.Bind(condition);
 	}
 
+    // result modifiers应该是因为结果发生了改变，比如说去重或者排序
 	// now bind all the result modifiers; including DISTINCT and ORDER BY targets
 	OrderBinder order_binder({this}, result->projection_index, statement, alias_map, projection_map);
 	BindModifiers(order_binder, statement, *result);

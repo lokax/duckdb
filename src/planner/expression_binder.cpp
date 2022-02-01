@@ -220,13 +220,13 @@ string ExpressionBinder::Bind(unique_ptr<ParsedExpression> *expr, idx_t depth, b
 	// bind the node, but only if it has not been bound yet
 	auto &expression = **expr;
 	auto alias = expression.alias;
-	if (expression.GetExpressionClass() == ExpressionClass::BOUND_EXPRESSION) {
+	if (expression.GetExpressionClass() == ExpressionClass::BOUND_EXPRESSION) { // 已经绑定了
 		// already bound, don't bind it again
 		return string();
 	}
 	// bind the expression
 	BindResult result = BindExpression(expr, depth, root_expression);
-	if (result.HasError()) {
+	if (result.HasError()) { // 有错误，返回错误值
 		return result.error;
 	} else {
 		// successfully bound: replace the node with a BoundExpression

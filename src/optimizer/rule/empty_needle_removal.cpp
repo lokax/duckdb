@@ -37,7 +37,7 @@ unique_ptr<Expression> EmptyNeedleRemovalRule::Apply(LogicalOperator &op, vector
 	auto prefix_value = ExpressionExecutor::EvaluateScalar(*prefix_expr);
 
 	if (prefix_value.is_null) {
-		return make_unique<BoundConstantExpression>(Value(LogicalType::BOOLEAN));
+		return make_unique<BoundConstantExpression>(Value(LogicalType::BOOLEAN)); // 返回空值
 	}
 
 	D_ASSERT(prefix_value.type() == prefix_expr->return_type);

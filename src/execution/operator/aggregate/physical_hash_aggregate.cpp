@@ -39,12 +39,12 @@ PhysicalHashAggregate::PhysicalHashAggregate(ClientContext &context, vector<Logi
       any_distinct(false) {
 	// get a list of all aggregates to be computed
 	for (auto &expr : groups) {
-		group_types.push_back(expr->return_type);
+		group_types.push_back(expr->return_type); // 被group的types
 	}
-	if (grouping_sets.empty()) {
+	if (grouping_sets.empty()) { // set是空，创建一个set
 		GroupingSet set;
 		for (idx_t i = 0; i < group_types.size(); i++) {
-			set.insert(i);
+			set.insert(i); 
 		}
 		grouping_sets.push_back(move(set));
 	}
@@ -53,13 +53,13 @@ PhysicalHashAggregate::PhysicalHashAggregate(ClientContext &context, vector<Logi
 		D_ASSERT(expr->expression_class == ExpressionClass::BOUND_AGGREGATE);
 		D_ASSERT(expr->IsAggregate());
 		auto &aggr = (BoundAggregateExpression &)*expr;
-		bindings.push_back(&aggr);
+		bindings.push_back(&aggr); // 指向aggr表达式的指针
 
 		if (aggr.distinct) {
 			any_distinct = true;
 		}
 
-		aggregate_return_types.push_back(aggr.return_type);
+		aggregate_return_types.push_back(aggr.return_type); // 被聚集的返回类型
 		for (auto &child : aggr.children) {
 			payload_types.push_back(child->return_type);
 		}
@@ -97,7 +97,7 @@ PhysicalHashAggregate::PhysicalHashAggregate(ClientContext &context, vector<Logi
 	}
 
 	for (auto &grouping_set : grouping_sets) {
-		radix_tables.emplace_back(grouping_set, *this);
+		radix_tables.emplace_back(grouping_set, *this); // 创建hash table
 	}
 }
 

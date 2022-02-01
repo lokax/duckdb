@@ -265,20 +265,21 @@ void SingleFileBlockManager::Write(FileBuffer &buffer, block_id_t block_id) {
 	buffer.ChecksumAndWrite(*handle, BLOCK_START + block_id * Storage::BLOCK_ALLOC_SIZE);
 }
 
+// 获取free list blocks，这些free block用来写入free block id。
 vector<block_id_t> SingleFileBlockManager::GetFreeListBlocks() {
 	vector<block_id_t> free_list_blocks;
 
 	if (!free_list.empty() || !multi_use_blocks.empty() || !modified_blocks.empty()) {
 		// there are blocks in the free list or multi_use_blocks
 		// figure out how many blocks we need to write these to the file
-		auto free_list_size = sizeof(uint64_t) + sizeof(block_id_t) * (free_list.size() + modified_blocks.size());
+		auto free_list_size = sizeof(uint64_t) + sizeof(block_id_t) * (free_list.size() + modified_blocks.size()); // 此处modified是该block被修改了，即新的内容在新的block，此时这个old block可以放进free list中
 		auto multi_use_blocks_size =
 		    sizeof(uint64_t) + (sizeof(block_id_t) + sizeof(uint32_t)) * multi_use_blocks.size();
 		auto total_size = free_list_size + multi_use_blocks_size;
 		// because of potential alignment issues and needing to store a next pointer in a block we subtract
 		// a bit from the max block size
-		auto space_in_block = Storage::BLOCK_SIZE - 4 * sizeof(block_id_t);
-		auto total_blocks = (total_size + space_in_block - 1) / space_in_block;
+		auto space_in_block = Storage::BLOCK_SIZE - 4 * sizeof(block_id_t); // 预留了四个block id?
+		auto total_blocks = (total_size + space_in_block - 1) / space_in_block; // 向上对齐
 		auto &config = DBConfig::GetConfig(db);
 		if (config.debug_many_free_list_blocks) {
 			total_blocks++;
@@ -341,6 +342,8 @@ void SingleFileBlockManager::WriteHeader(DatabaseHeader header) {
 		header.free_list = writer.block->id;
 		for (auto &block_id : free_list_blocks) {
 			modified_blocks.insert(block_id);
+            // 将这些block id标记成modify，这样下次checkpoint就会将这些free block回收
+            // 如果系统重启了，则会在MetaReader中恢复modified_block,遍历free block时顺带记录了下来
 		}
 
 		writer.Write<uint64_t>(free_list.size());

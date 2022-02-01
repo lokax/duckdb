@@ -5,13 +5,17 @@
 namespace duckdb {
 
 struct TransactionVersionOperator {
+    // 可以使用被插入的数据版本
 	static bool UseInsertedVersion(transaction_t start_time, transaction_t transaction_id, transaction_t id) {
+        // id < start_time说明,插入该数据的事务已经提交，并且我能看懂
+        // id == tid说明是我插入的，当然可以看到
 		return id < start_time || id == transaction_id;
 	}
 
 	static bool UseDeletedVersion(transaction_t start_time, transaction_t transaction_id, transaction_t id) {
         // weng: id >= start_time && id != transaction_id
 		return !UseInsertedVersion(start_time, transaction_id, id);
+        // 删除该数据的事务id比我的开始时间戳大，要么未提交，要么提交了，但是因为id >= start_time因此我是不会被这个删除影响的
 	}
 };
 
@@ -22,6 +26,7 @@ struct CommittedVersionOperator {
 
 	static bool UseDeletedVersion(transaction_t min_start_time, transaction_t min_transaction_id, transaction_t id) {
 		return (id >= min_start_time && id < TRANSACTION_ID_START) || (id >= min_transaction_id);
+        
 	}
 };
 

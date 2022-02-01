@@ -112,9 +112,9 @@ FilterPropagateResult NumericStatistics::CheckZonemap(ExpressionType comparison_
 	}
 	switch (comparison_type) {
 	case ExpressionType::COMPARE_EQUAL:
-		if (constant == min && constant == max) {
+		if (constant == min && constant == max) { // 比较结果总是true
 			return FilterPropagateResult::FILTER_ALWAYS_TRUE;
-		} else if (constant >= min && constant <= max) {
+		} else if (constant >= min && constant <= max) { // 在这中间，不能做修剪
 			return FilterPropagateResult::NO_PRUNING_POSSIBLE;
 		} else {
 			return FilterPropagateResult::FILTER_ALWAYS_FALSE;

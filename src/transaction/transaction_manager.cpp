@@ -177,7 +177,7 @@ bool TransactionManager::CanCheckpoint(Transaction *current) {
 
 string TransactionManager::CommitTransaction(ClientContext &context, Transaction *transaction) {
 	vector<ClientLockWrapper> client_locks;
-	auto lock = make_unique<lock_guard<mutex>>(transaction_lock);
+	auto lock = make_unique<lock_guard<mutex>>(transaction_lock); // 拿事务锁
 	CheckpointLock checkpoint_lock(*this);
 	// check if we can checkpoint
 	bool checkpoint = thread_is_checkpointing ? false : CanCheckpoint(transaction);
@@ -201,7 +201,7 @@ string TransactionManager::CommitTransaction(ClientContext &context, Transaction
 		}
 	}
 	// obtain a commit id for the transaction
-	transaction_t commit_id = current_start_timestamp++;
+	transaction_t commit_id = current_start_timestamp++; // 获取commit id
 	// commit the UndoBuffer of the transaction
 	string error = transaction->Commit(db, commit_id, checkpoint);
 	if (!error.empty()) {

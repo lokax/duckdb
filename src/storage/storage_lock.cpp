@@ -21,7 +21,7 @@ StorageLock::StorageLock() : read_count(0) {
 
 unique_ptr<StorageLockKey> StorageLock::GetExclusiveLock() {
 	exclusive_lock.lock();
-	while (read_count != 0) {
+	while (read_count != 0) { // cpu buzy loop，同时由于获取了exclusive_lock，会阻塞后续的读操作，防止写锁饿死
 	}
 	return make_unique<StorageLockKey>(*this, StorageLockType::EXCLUSIVE);
 }

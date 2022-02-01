@@ -280,6 +280,7 @@ bool RowGroup::CheckZonemapSegments(RowGroupScanState &state) {
 	return true;
 }
 
+// 做扫描
 template <TableScanType TYPE>
 void RowGroup::TemplatedScan(Transaction *transaction, RowGroupScanState &state, DataChunk &result) {
 	const bool ALLOW_UPDATES = TYPE != TableScanType::TABLE_SCAN_COMMITTED_ROWS_DISALLOW_UPDATES &&
@@ -311,7 +312,8 @@ void RowGroup::TemplatedScan(Transaction *transaction, RowGroupScanState &state,
 				continue;
 			}
 		} else if (TYPE == TableScanType::TABLE_SCAN_COMMITTED_ROWS_OMIT_PERMANENTLY_DELETED) {
-			auto &transaction_manager = TransactionManager::Get(db);
+			// 创建索引时会是这种类型的table scan,会忽略掉所以不会再被看到的已经删除的记录
+            auto &transaction_manager = TransactionManager::Get(db);
 			auto lowest_active_start = transaction_manager.LowestActiveStart();
 			auto lowest_active_id = transaction_manager.LowestActiveId();
 
@@ -323,39 +325,43 @@ void RowGroup::TemplatedScan(Transaction *transaction, RowGroupScanState &state,
 				continue;
 			}
 		} else {
-			count = max_count;
+			count = max_count; // 这种情况不需要获取sel
 		}
+        // count没变过，并且没有过滤器
 		if (count == max_count && !table_filters) {
 			// scan all vectors completely: full scan without deletions or table filters
 			for (idx_t i = 0; i < column_ids.size(); i++) {
-				auto column = column_ids[i];
-				if (column == COLUMN_IDENTIFIER_ROW_ID) {
+				auto column = column_ids[i]; // 获取列id
+				if (column == COLUMN_IDENTIFIER_ROW_ID) { // 如果是row id type，则通过sequence生成row id
 					// scan row id
 					D_ASSERT(result.data[i].GetType().InternalType() == ROW_TYPE);
 					result.data[i].Sequence(this->start + current_row, 1);
 				} else {
+                    // 不是常规扫描，这种情况下扫描已提交的数据
+                    // 获取出来的数据不一定是已经提交的，但是会通过选择子来保证
 					if (TYPE != TableScanType::TABLE_SCAN_REGULAR) {
 						columns[column]->ScanCommitted(state.vector_index, state.column_scans[i], result.data[i],
 						                               ALLOW_UPDATES);
 					} else {
 						D_ASSERT(transaction);
+                        // 正常的扫描，会通过update info将数据回滚到一个可见的version
 						columns[column]->Scan(*transaction, state.vector_index, state.column_scans[i], result.data[i]);
 					}
 				}
 			}
-		} else {
+		} else { // 这种情况要么有未提交的Append/Delete，要么是存在过滤器
 			// partial scan: we have deletions or table filters
 			idx_t approved_tuple_count = count;
 			SelectionVector sel;
 			if (count != max_count) {
-				sel.Initialize(valid_sel);
+				sel.Initialize(valid_sel); // 设置选择子
 			} else {
 				sel.Initialize(FlatVector::INCREMENTAL_SELECTION_VECTOR);
 			}
 			//! first, we scan the columns with filters, fetch their data and generate a selection vector.
 			//! get runtime statistics
-			auto start_time = high_resolution_clock::now();
-			if (table_filters) {
+			auto start_time = high_resolution_clock::now(); // 这是做统计数据吗？
+			if (table_filters) { // 如果存在过滤器
 				D_ASSERT(ALLOW_UPDATES);
 				for (idx_t i = 0; i < table_filters->filters.size(); i++) {
 					auto tf_idx = adaptive_filter->permutation[i];
@@ -378,13 +384,15 @@ void RowGroup::TemplatedScan(Transaction *transaction, RowGroupScanState &state,
 					if (col_idx == COLUMN_IDENTIFIER_ROW_ID) {
 						continue;
 					}
-					if (table_filters->filters.find(i) == table_filters->filters.end()) {
+					if (table_filters->filters.find(i) == table_filters->filters.end()) { // 对没有filter的column进行skip
 						columns[col_idx]->Skip(state.column_scans[i]);
 					}
 				}
 				state.vector_index++;
 				continue;
 			}
+
+            // 给没有filter的列扫描数据，因为上面已经把有filter的数据扫描过了
 			//! Now we use the selection vector to fetch data for the other columns.
 			for (idx_t i = 0; i < column_ids.size(); i++) {
 				if (!table_filters || table_filters->filters.find(i) == table_filters->filters.end()) {
@@ -397,12 +405,12 @@ void RowGroup::TemplatedScan(Transaction *transaction, RowGroupScanState &state,
 							result_data[sel_idx] = this->start + current_row + sel.get_index(sel_idx);
 						}
 					} else {
-						if (TYPE == TableScanType::TABLE_SCAN_REGULAR) {
+						if (TYPE == TableScanType::TABLE_SCAN_REGULAR) { // 如果是正常扫描
 							D_ASSERT(transaction);
 							columns[column]->FilterScan(*transaction, state.vector_index, state.column_scans[i],
 							                            result.data[i], sel, approved_tuple_count);
 						} else {
-							D_ASSERT(!transaction);
+							D_ASSERT(!transaction); // 这种情况transaction是nullptr
 							columns[column]->FilterScanCommitted(state.vector_index, state.column_scans[i],
 							                                     result.data[i], sel, approved_tuple_count,
 							                                     ALLOW_UPDATES);
@@ -423,10 +431,13 @@ void RowGroup::TemplatedScan(Transaction *transaction, RowGroupScanState &state,
 	}
 }
 
+// 正常扫描数据
 void RowGroup::Scan(Transaction &transaction, RowGroupScanState &state, DataChunk &result) {
 	TemplatedScan<TableScanType::TABLE_SCAN_REGULAR>(&transaction, state, result);
 }
 
+// 扫描已提交数据
+// 这些都不需要传transaction
 void RowGroup::ScanCommitted(RowGroupScanState &state, DataChunk &result, TableScanType type) {
 	switch (type) {
 	case TableScanType::TABLE_SCAN_COMMITTED_ROWS:
@@ -543,9 +554,12 @@ void RowGroup::AppendVersionInfo(Transaction &transaction, idx_t row_group_start
 	}
 }
 
+// 提交更新
 void RowGroup::CommitAppend(transaction_t commit_id, idx_t row_group_start, idx_t count) {
 	D_ASSERT(version_info.get());
 	idx_t row_group_end = row_group_start + count;
+    // 拿了row group锁，这样不会有人进来看到一半已提交，一半未提交
+    // 例如：GetSelectionVector会和此处发生数据竞争
 	lock_guard<mutex> lock(row_group_lock);
 
 	idx_t start_vector_idx = row_group_start / STANDARD_VECTOR_SIZE;
@@ -556,10 +570,11 @@ void RowGroup::CommitAppend(transaction_t commit_id, idx_t row_group_start, idx_
 		    vector_idx == end_vector_idx ? row_group_end - end_vector_idx * STANDARD_VECTOR_SIZE : STANDARD_VECTOR_SIZE;
 
 		auto info = version_info->info[vector_idx].get();
-		info->CommitAppend(commit_id, start, end); 
+		info->CommitAppend(commit_id, start, end);  // 将id更新为commit_id
 	}
 }
 
+// 回滚Append
 void RowGroup::RevertAppend(idx_t row_group_start) {
 	if (!version_info) {
 		return;
@@ -741,15 +756,15 @@ void RowGroup::Serialize(RowGroupPointer &pointer, Serializer &serializer) {
 
 RowGroupPointer RowGroup::Deserialize(Deserializer &source, const vector<ColumnDefinition> &columns) {
 	RowGroupPointer result;
-	result.row_start = source.Read<uint64_t>();
-	result.tuple_count = source.Read<uint64_t>();
+	result.row_start = source.Read<uint64_t>(); // 获取row start是多少
+	result.tuple_count = source.Read<uint64_t>(); // 获取count是多少
 
 	result.data_pointers.reserve(columns.size());
 	result.statistics.reserve(columns.size());
 
 	for (idx_t i = 0; i < columns.size(); i++) {
 		auto stats = BaseStatistics::Deserialize(source, columns[i].type);
-		result.statistics.push_back(move(stats));
+		result.statistics.push_back(move(stats)); // row group每一列的统计数据
 	}
 	for (idx_t i = 0; i < columns.size(); i++) {
 		BlockPointer pointer;
@@ -757,7 +772,7 @@ RowGroupPointer RowGroup::Deserialize(Deserializer &source, const vector<ColumnD
 		pointer.offset = source.Read<uint64_t>();
 		result.data_pointers.push_back(pointer);
 	}
-	result.versions = DeserializeDeletes(source);
+	result.versions = DeserializeDeletes(source); // 获取version信息
 	return result;
 }
 

@@ -278,7 +278,7 @@ template <class T>
 static void TemplatedUpdateLoop(Vector &data_vector, Vector &update_vector, Vector &row_ids, idx_t count,
                                 idx_t base_index) {
 	VectorData udata;
-	update_vector.Orrify(count, udata);
+	update_vector.Orrify(count, udata); // 获取选择向量和数据指针以及validate mask
 
 	auto target = FlatVector::GetData<T>(data_vector);
 	auto &mask = FlatVector::Validity(data_vector);
@@ -286,7 +286,7 @@ static void TemplatedUpdateLoop(Vector &data_vector, Vector &update_vector, Vect
 	auto updates = (T *)udata.data;
 
 	for (idx_t i = 0; i < count; i++) {
-		auto uidx = udata.sel->get_index(i);
+		auto uidx = udata.sel->get_index(i); // 在update chunck中的选择向量
 
 		auto id = ids[i] - base_index;
 		target[id] = updates[uidx];

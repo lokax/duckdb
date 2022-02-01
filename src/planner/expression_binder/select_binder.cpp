@@ -11,6 +11,7 @@
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/planner/binder.hpp"
 
+#include <iostream>
 namespace duckdb {
 
 SelectBinder::SelectBinder(Binder &binder, ClientContext &context, BoundSelectNode &node, BoundGroupInformation &info)
@@ -22,6 +23,7 @@ BindResult SelectBinder::BindExpression(unique_ptr<ParsedExpression> *expr_ptr, 
 	// check if the expression binds to one of the groups
 	auto group_index = TryBindGroup(expr, depth);
 	if (group_index != INVALID_INDEX) {
+        std::cout << "bind group" << std::endl;
 		return BindGroup(expr, depth, group_index);
 	}
 	switch (expr.expression_class) {

@@ -94,7 +94,7 @@ void ExpressionExecutor::Execute(const BoundBetweenExpression &expr, ExpressionS
 	// resolve the children
 	state->intermediate_chunk.Reset();
 
-	auto &input = state->intermediate_chunk.data[0];
+	auto &input = state->intermediate_chunk.data[0]; // 获取三个Vector
 	auto &lower = state->intermediate_chunk.data[1];
 	auto &upper = state->intermediate_chunk.data[2];
 

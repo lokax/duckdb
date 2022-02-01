@@ -113,7 +113,7 @@ public:
 	explicit NestedLoopJoinLocalState(const vector<JoinCondition> &conditions) {
 		vector<LogicalType> condition_types;
 		for (auto &cond : conditions) {
-			rhs_executor.AddExpression(*cond.right);
+			rhs_executor.AddExpression(*cond.right); // 放右表达式进去
 			condition_types.push_back(cond.right->return_type);
 		}
 		right_condition.Initialize(condition_types);
@@ -132,9 +132,9 @@ public:
 
 	mutex nj_lock;
 	//! Materialized data of the RHS
-	ChunkCollection right_data;
+	ChunkCollection right_data; // 对右表的物化
 	//! Materialized join condition of the RHS
-	ChunkCollection right_chunks;
+	ChunkCollection right_chunks; // 连接条件的物化
 	//! Whether or not the RHS of the nested loop join has NULL values
 	bool has_null;
 	//! A bool indicating for each tuple in the RHS if they found a match (only used in FULL OUTER JOIN)
@@ -148,7 +148,7 @@ SinkResultType PhysicalNestedLoopJoin::Sink(ExecutionContext &context, GlobalSin
 
 	// resolve the join expression of the right side
 	nlj_state.right_condition.Reset();
-	nlj_state.rhs_executor.Execute(input, nlj_state.right_condition);
+	nlj_state.rhs_executor.Execute(input, nlj_state.right_condition); // 执行right_condition表达式
 
 	// if we have not seen any NULL values yet, and we are performing a MARK join, check if there are NULL values in
 	// this chunk
@@ -160,8 +160,8 @@ SinkResultType PhysicalNestedLoopJoin::Sink(ExecutionContext &context, GlobalSin
 
 	// append the data and the
 	lock_guard<mutex> nj_guard(gstate.nj_lock);
-	gstate.right_data.Append(input);
-	gstate.right_chunks.Append(nlj_state.right_condition);
+	gstate.right_data.Append(input); // 将输入添加到右表
+	gstate.right_chunks.Append(nlj_state.right_condition); // 添加进去
 	return SinkResultType::NEED_MORE_INPUT;
 }
 
@@ -338,7 +338,7 @@ OperatorResultType PhysicalNestedLoopJoin::ResolveComplexJoin(ExecutionContext &
 		}
 		if (state.fetch_next_left) {
 			// resolve the left join condition for the current chunk
-			state.lhs_executor.Execute(input, state.left_condition);
+			state.lhs_executor.Execute(input, state.left_condition); // 计算left_condition
 
 			state.left_tuple = 0;
 			state.right_tuple = 0;

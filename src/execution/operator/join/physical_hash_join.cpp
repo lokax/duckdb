@@ -24,7 +24,7 @@ PhysicalHashJoin::PhysicalHashJoin(LogicalOperator &op, unique_ptr<PhysicalOpera
 
 	D_ASSERT(left_projection_map.empty());
 	for (auto &condition : conditions) {
-		condition_types.push_back(condition.left->return_type);
+		condition_types.push_back(condition.left->return_type); // left expreesion的return type
 	}
 
 	// for ANTI, SEMI and MARK join, we only need to store the keys, so for these the build types are empty
@@ -220,7 +220,8 @@ OperatorResultType PhysicalHashJoin::Execute(ExecutionContext &context, DataChun
 	auto &sink = (HashJoinGlobalState &)*sink_state;
 	D_ASSERT(sink.finalized);
 
-	if (sink.hash_table->Count() == 0 && EmptyResultIfRHSIsEmpty()) {
+    // 假设是右连接，但是右表是探测表，此时hash_table count又是0,所以已经没有数据了
+	if (sink.hash_table->Count() == 0 && EmptyResultIfRHSIsEmpty()) { 
 		return OperatorResultType::FINISHED;
 	}
 	if (sink.perfect_join_executor) {
@@ -230,7 +231,7 @@ OperatorResultType PhysicalHashJoin::Execute(ExecutionContext &context, DataChun
 	if (state.scan_structure) {
 		// still have elements remaining from the previous probe (i.e. we got
 		// >1024 elements in the previous probe)
-		state.scan_structure->Next(state.join_keys, input, chunk);
+		state.scan_structure->Next(state.join_keys, input, chunk); // 因为调度那里会cache下input，所以这个input是之前的input
 		if (chunk.size() > 0) {
 			return OperatorResultType::HAVE_MORE_OUTPUT;
 		}
@@ -239,7 +240,7 @@ OperatorResultType PhysicalHashJoin::Execute(ExecutionContext &context, DataChun
 	}
 
 	// probe the HT
-	if (sink.hash_table->Count() == 0) {
+	if (sink.hash_table->Count() == 0) { // 像left join需要做这个动作
 		ConstructEmptyJoinResult(sink.hash_table->join_type, sink.hash_table->has_null, input, chunk);
 		return OperatorResultType::NEED_MORE_INPUT;
 	}

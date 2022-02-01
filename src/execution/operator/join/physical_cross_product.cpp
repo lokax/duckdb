@@ -19,7 +19,7 @@ public:
 	CrossProductGlobalState() {
 	}
 
-	ChunkCollection rhs_materialized;
+	ChunkCollection rhs_materialized; // 右表需要物化
 	mutex rhs_lock;
 };
 
@@ -27,10 +27,11 @@ unique_ptr<GlobalSinkState> PhysicalCrossProduct::GetGlobalSinkState(ClientConte
 	return make_unique<CrossProductGlobalState>();
 }
 
+// 先物化右表
 SinkResultType PhysicalCrossProduct::Sink(ExecutionContext &context, GlobalSinkState &state, LocalSinkState &lstate_p,
                                           DataChunk &input) const {
 	auto &sink = (CrossProductGlobalState &)state;
-	lock_guard<mutex> client_guard(sink.rhs_lock);
+	lock_guard<mutex> client_guard(sink.rhs_lock); // 因为可以并行sink，所以才要加锁吧
 	sink.rhs_materialized.Append(input);
 	return SinkResultType::NEED_MORE_INPUT;
 }
@@ -66,7 +67,7 @@ OperatorResultType PhysicalCrossProduct::Execute(ExecutionContext &context, Data
 		state.right_position = 0;
 		return OperatorResultType::NEED_MORE_INPUT;
 	}
-
+    // right collection已经提前物化好了
 	auto &left_chunk = input;
 	// now match the current vector of the left relation with the current row
 	// from the right relation

@@ -1,5 +1,3 @@
-
-
 .PHONY: duckdb clean main
 
 all: duckdb main
@@ -14,5 +12,3 @@ main:
 	mkdir -p build
 	cd build && cmake .. && make
 	build/example
-
-

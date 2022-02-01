@@ -71,7 +71,7 @@ void RowLayout::Initialize(vector<LogicalType> types_p, Aggregates aggregates_p,
 		row_width = AlignValue(row_width);
 	}
 #endif
-	data_width = row_width - flag_width;
+	data_width = row_width - flag_width; // 数据的宽度
 
 	// Aggregate fields.
 	aggregates = move(aggregates_p);

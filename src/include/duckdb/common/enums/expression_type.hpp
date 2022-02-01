@@ -67,8 +67,8 @@ enum class ExpressionType : uint8_t {
 	// -----------------------------
 	// Values
 	// -----------------------------
-	VALUE_CONSTANT = 75,
-	VALUE_PARAMETER = 76,
+	VALUE_CONSTANT = 75, // weng
+	VALUE_PARAMETER = 76, // weng
 	VALUE_TUPLE = 77,
 	VALUE_TUPLE_ADDRESS = 78,
 	VALUE_NULL = 79,
@@ -105,7 +105,7 @@ enum class ExpressionType : uint8_t {
 	// Functions
 	// -----------------------------
 	FUNCTION = 140,
-	BOUND_FUNCTION = 141,
+	BOUND_FUNCTION = 141, // weng
 
 	// -----------------------------
 	// Operators
@@ -121,7 +121,7 @@ enum class ExpressionType : uint8_t {
 	// -----------------------------
 	// Subquery IN/EXISTS
 	// -----------------------------
-	SUBQUERY = 175,
+	SUBQUERY = 175, // weng
 
 	// -----------------------------
 	// Parser
@@ -136,9 +136,9 @@ enum class ExpressionType : uint8_t {
 	// -----------------------------
 	// Miscellaneous
 	// -----------------------------
-	CAST = 225,
-	BOUND_REF = 227,
-	BOUND_COLUMN_REF = 228,
+	CAST = 225, // weng
+	BOUND_REF = 227, // weng
+	BOUND_COLUMN_REF = 228, // weng 
 	BOUND_UNNEST = 229,
 	COLLATE = 230,
 	LAMBDA = 231,
@@ -170,23 +170,23 @@ enum class ExpressionClass : uint8_t {
 	COLLATE = 16,
 	LAMBDA = 17,
 	POSITIONAL_REFERENCE = 18,
-	BETWEEN = 19,
+	BETWEEN = 19, // weng
 	//===--------------------------------------------------------------------===//
 	// Bound Expressions
 	//===--------------------------------------------------------------------===//
 	BOUND_AGGREGATE = 25,
-	BOUND_CASE = 26,
-	BOUND_CAST = 27,
-	BOUND_COLUMN_REF = 28,
-	BOUND_COMPARISON = 29,
-	BOUND_CONJUNCTION = 30,
-	BOUND_CONSTANT = 31,
+	BOUND_CASE = 26, // weng
+	BOUND_CAST = 27, // weng
+	BOUND_COLUMN_REF = 28, // weng
+	BOUND_COMPARISON = 29, // weng
+	BOUND_CONJUNCTION = 30, // weng
+	BOUND_CONSTANT = 31, // weng
 	BOUND_DEFAULT = 32,
-	BOUND_FUNCTION = 33,
-	BOUND_OPERATOR = 34,
-	BOUND_PARAMETER = 35,
-	BOUND_REF = 36,
-	BOUND_SUBQUERY = 37,
+	BOUND_FUNCTION = 33, // weng
+	BOUND_OPERATOR = 34, // weng
+	BOUND_PARAMETER = 35, // weng
+	BOUND_REF = 36, // weng
+	BOUND_SUBQUERY = 37, // weng
 	BOUND_WINDOW = 38,
 	BOUND_BETWEEN = 39,
 	BOUND_UNNEST = 40,

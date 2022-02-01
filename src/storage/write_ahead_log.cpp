@@ -215,8 +215,9 @@ void WriteAheadLog::WriteInsert(DataChunk &chunk) {
 	chunk.Serialize(*writer);
 }
 
+// 写入被删除的row id
 void WriteAheadLog::WriteDelete(DataChunk &chunk) {
-	if (skip_writing) {
+	if (skip_writing) { // 应该是做checkpoint时不会？
 		return;
 	}
 	D_ASSERT(chunk.size() > 0);

@@ -725,7 +725,7 @@ FilterResult FilterCombiner::AddFilter(Expression *expr) {
  * It's missing to create another method to add transitive filters from scalar filters, e.g, i > 10
  */
 FilterResult FilterCombiner::AddTransitiveFilters(BoundComparisonExpression &comparison) {
-	D_ASSERT(IsGreaterThan(comparison.type) || IsLessThan(comparison.type));
+	D_ASSERT(IsGreaterThan(comparison.type) || IsLessThan(comparison.type)); // ？？？
 	// get the LHS and RHS nodes
 	Expression *left_node = GetNode(comparison.left.get());
 	Expression *right_node = GetNode(comparison.right.get());
@@ -869,24 +869,24 @@ ValueComparisonResult CompareValueInformation(ExpressionValueInformation &left, 
 		// (2) return UNSATISFIABLE
 		bool prune_right_side = false;
 		switch (right.comparison_type) {
-		case ExpressionType::COMPARE_LESSTHAN:
+		case ExpressionType::COMPARE_LESSTHAN: // weng: x == 1 AND x < 3 --> x == 1
 			prune_right_side = left.constant < right.constant;
 			break;
-		case ExpressionType::COMPARE_LESSTHANOREQUALTO:
+		case ExpressionType::COMPARE_LESSTHANOREQUALTO: 
 			prune_right_side = left.constant <= right.constant;
 			break;
-		case ExpressionType::COMPARE_GREATERTHAN:
+		case ExpressionType::COMPARE_GREATERTHAN: // weng: x == 3 AND x > 2 --> x == 3
 			prune_right_side = left.constant > right.constant;
 			break;
 		case ExpressionType::COMPARE_GREATERTHANOREQUALTO:
-			prune_right_side = left.constant >= right.constant;
+			prune_right_side = left.constant >= right.constant; // weng: x == 3 AND x >= 3 --> x == 3
 			break;
 		case ExpressionType::COMPARE_NOTEQUAL:
-			prune_right_side = left.constant != right.constant;
+			prune_right_side = left.constant != right.constant; // weng: x == 3 AND x != 2 --> x == 3
 			break;
 		default:
 			D_ASSERT(right.comparison_type == ExpressionType::COMPARE_EQUAL);
-			prune_right_side = left.constant == right.constant;
+			prune_right_side = left.constant == right.constant; // weng: x == 3 AND x == 3 --> x == 3
 			break;
 		}
 		if (prune_right_side) {

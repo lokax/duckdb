@@ -12,8 +12,8 @@ namespace duckdb {
 
 unique_ptr<PhysicalOperator> PhysicalPlanGenerator::CreatePlan(LogicalFilter &op) {
 	D_ASSERT(op.children.size() == 1);
-	unique_ptr<PhysicalOperator> plan = CreatePlan(*op.children[0]);
-	if (!op.expressions.empty()) {
+	unique_ptr<PhysicalOperator> plan = CreatePlan(*op.children[0]); // 递归创建子计划
+	if (!op.expressions.empty()) { // 如果表达式不是空
 		D_ASSERT(plan->types.size() > 0);
 		// create a filter if there is anything to filter
 		auto filter = make_unique<PhysicalFilter>(plan->types, move(op.expressions), op.estimated_cardinality);

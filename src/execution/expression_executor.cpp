@@ -76,6 +76,7 @@ void ExpressionExecutor::ExecuteExpression(idx_t expr_idx, Vector &result) {
 	states[expr_idx]->profiler.EndSample(chunk ? chunk->size() : 0);
 }
 
+// 静态方法
 Value ExpressionExecutor::EvaluateScalar(const Expression &expr) {
 	D_ASSERT(expr.IsFoldable());
 	// use an ExpressionExecutor to execute the expression

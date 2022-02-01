@@ -40,7 +40,7 @@ void Event::Finish() {
 	FinalizeFinish();
 }
 
-void Event::AddDependency(Event &event) {
+void Event::AddDependency(Event &event) { // event依赖这个事件去完成
 	total_dependencies++;
 	event.parents.push_back(weak_ptr<Event>(shared_from_this()));
 }

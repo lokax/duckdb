@@ -38,26 +38,26 @@ PipelineExecutor::PipelineExecutor(ClientContext &context_p, Pipeline &pipeline_
 		if (current_operator->IsSink() && current_operator->sink_state->state == SinkFinalizeType::NO_OUTPUT_POSSIBLE) {
 			// one of the operators has already figured out no output is possible
 			// we can skip executing the pipeline
-			finished_processing = true;
+			finished_processing = true; // 一旦流水线中有一个没有输出，则直接跳过？
 		}
 	}
 	InitializeChunk(final_chunk);
 }
 
 void PipelineExecutor::Execute() {
-	D_ASSERT(pipeline.sink);
+	D_ASSERT(pipeline.sink); // empty的时候，final_chunk也是source chunck
 	auto &source_chunk = pipeline.operators.empty() ? final_chunk : *intermediate_chunks[0];
 	while (true) {
-		if (finished_processing) {
+		if (finished_processing) { // 完成处理则跳出循环
 			break;
 		}
-		source_chunk.Reset();
-		FetchFromSource(source_chunk);
-		if (source_chunk.size() == 0) {
+		source_chunk.Reset(); // reset一下
+		FetchFromSource(source_chunk); // 从source中获取数据到source chunck
+		if (source_chunk.size() == 0) { // source中没有数据了
 			break;
 		}
 		auto result = ExecutePushInternal(source_chunk);
-		if (result == OperatorResultType::FINISHED) {
+		if (result == OperatorResultType::FINISHED) { // 完成了也退出
 			finished_processing = true;
 			break;
 		}
@@ -176,7 +176,7 @@ void PipelineExecutor::ExecutePull(DataChunk &result) {
 	}
 	auto &executor = pipeline.executor;
 	try {
-		D_ASSERT(!pipeline.sink);
+		D_ASSERT(!pipeline.sink); // 不然调用push么
 		auto &source_chunk = pipeline.operators.empty() ? result : *intermediate_chunks[0];
 		while (result.size() == 0) {
 			if (in_process_operators.empty()) {
@@ -303,10 +303,11 @@ OperatorResultType PipelineExecutor::Execute(DataChunk &input, DataChunk &result
 
 void PipelineExecutor::FetchFromSource(DataChunk &result) {
 	StartOperator(pipeline.source);
-	pipeline.source->GetData(context, result, *pipeline.source_state, *local_source_state);
+	pipeline.source->GetData(context, result, *pipeline.source_state, *local_source_state); // 获取数据
 	EndOperator(pipeline.source, &result);
 }
 
+// 初始化最后一个chunk？
 void PipelineExecutor::InitializeChunk(DataChunk &chunk) {
 	PhysicalOperator *last_op = pipeline.operators.empty() ? pipeline.source : pipeline.operators.back();
 	chunk.Initialize(last_op->GetTypes());

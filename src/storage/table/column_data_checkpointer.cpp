@@ -81,7 +81,7 @@ unique_ptr<AnalyzeState> ColumnDataCheckpointer::DetectBestCompressionMethod(idx
 	auto &config = DBConfig::GetConfig(GetDatabase());
 
 	auto compression_type = checkpoint_info.compression_type;
-	if (compression_type != CompressionType::COMPRESSION_AUTO) {
+	if (compression_type != CompressionType::COMPRESSION_AUTO) { // 如果强制使用某一个压缩方法，则把别的方法都清空
 		ForceCompression(compression_functions, compression_type);
 	}
 	if (compression_type == CompressionType::COMPRESSION_AUTO &&
@@ -172,6 +172,7 @@ void ColumnDataCheckpointer::WriteToDisk() {
 	owned_segment.reset();
 }
 
+// 只要一个段更新了就返回true
 bool ColumnDataCheckpointer::HasChanges() {
 	for (auto segment = (ColumnSegment *)owned_segment.get(); segment; segment = (ColumnSegment *)segment->next.get()) {
 		if (segment->segment_type == ColumnSegmentType::TRANSIENT) {

@@ -85,14 +85,14 @@ unique_ptr<BoundTableRef> Binder::Bind(BaseTableRef &ref) {
 		auto table_index = GenerateTableIndex();
 		auto table = (TableCatalogEntry *)table_or_view;
 
-		auto scan_function = TableScanFunction::GetFunction();
-		auto bind_data = make_unique<TableScanBindData>(table);
-		auto alias = ref.alias.empty() ? ref.table_name : ref.alias;
+		auto scan_function = TableScanFunction::GetFunction(); // scan函数
+		auto bind_data = make_unique<TableScanBindData>(table); // 将table放进去
+		auto alias = ref.alias.empty() ? ref.table_name : ref.alias; // 有别名则使用别名，无别名则原表名
 		vector<LogicalType> table_types;
 		vector<string> table_names;
 		for (auto &col : table->columns) {
 			table_types.push_back(col.type);
-			table_names.push_back(col.name);
+			table_names.push_back(col.name); // 叫table_names是不是有点奇葩
 		}
 		table_names = BindContext::AliasColumnNames(alias, table_names, ref.column_name_alias);
 

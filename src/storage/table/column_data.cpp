@@ -1,16 +1,16 @@
 #include "duckdb/storage/table/column_data.hpp"
+
+#include "duckdb/common/vector_operations/vector_operations.hpp"
+#include "duckdb/function/compression_function.hpp"
+#include "duckdb/planner/table_filter.hpp"
+#include "duckdb/storage/data_pointer.hpp"
 #include "duckdb/storage/data_table.hpp"
 #include "duckdb/storage/storage_manager.hpp"
-#include "duckdb/storage/data_pointer.hpp"
-#include "duckdb/storage/table/update_segment.hpp"
-#include "duckdb/planner/table_filter.hpp"
-#include "duckdb/common/vector_operations/vector_operations.hpp"
-#include "duckdb/storage/table/struct_column_data.hpp"
+#include "duckdb/storage/table/column_data_checkpointer.hpp"
 #include "duckdb/storage/table/list_column_data.hpp"
 #include "duckdb/storage/table/standard_column_data.hpp"
-
-#include "duckdb/storage/table/column_data_checkpointer.hpp"
-#include "duckdb/function/compression_function.hpp"
+#include "duckdb/storage/table/struct_column_data.hpp"
+#include "duckdb/storage/table/update_segment.hpp"
 
 namespace duckdb {
 
@@ -42,12 +42,13 @@ idx_t ColumnData::GetMaxEntry() {
 }
 
 void ColumnData::InitializeScan(ColumnScanState &state) {
-	state.current = (ColumnSegment *)data.GetRootSegment();
+	state.current = (ColumnSegment *)data.GetRootSegment(); // 获取根segment
 	state.row_index = state.current ? state.current->start : 0;
 	state.internal_index = state.row_index;
 	state.initialized = false;
 }
 
+// 带偏移量的初始化
 void ColumnData::InitializeScanWithOffset(ColumnScanState &state, idx_t row_idx) {
 	state.current = (ColumnSegment *)data.GetSegment(row_idx);
 	state.row_index = row_idx;
@@ -55,6 +56,7 @@ void ColumnData::InitializeScanWithOffset(ColumnScanState &state, idx_t row_idx)
 	state.initialized = false;
 }
 
+// scan表中的数据到Vector中
 idx_t ColumnData::ScanVector(ColumnScanState &state, Vector &result, idx_t remaining) {
 	if (!state.initialized) {
 		D_ASSERT(state.current);
@@ -64,7 +66,7 @@ idx_t ColumnData::ScanVector(ColumnScanState &state, Vector &result, idx_t remai
 	}
 	D_ASSERT(state.internal_index <= state.row_index);
 	if (state.internal_index < state.row_index) {
-		state.current->Skip(state);
+		state.current->Skip(state); // 跳到指定位置？
 	}
 	D_ASSERT(state.current->type == type);
 	idx_t initial_remaining = remaining;
@@ -94,19 +96,20 @@ idx_t ColumnData::ScanVector(ColumnScanState &state, Vector &result, idx_t remai
 
 template <bool SCAN_COMMITTED, bool ALLOW_UPDATES>
 idx_t ColumnData::ScanVector(Transaction *transaction, idx_t vector_index, ColumnScanState &state, Vector &result) {
-	auto scan_count = ScanVector(state, result, STANDARD_VECTOR_SIZE);
+    // scan一个VECTOR大小
+	auto scan_count = ScanVector(state, result, STANDARD_VECTOR_SIZE); // 从base table中扫描数据
 
-	lock_guard<mutex> update_guard(update_lock);
+	lock_guard<mutex> update_guard(update_lock); // 加更新锁
 	if (updates) {
-		if (!ALLOW_UPDATES && updates->HasUncommittedUpdates(vector_index)) {
+		if (!ALLOW_UPDATES && updates->HasUncommittedUpdates(vector_index)) { // 不允许更新，但是有未提交的更新则抛异常
 			throw TransactionException("Cannot create index with outstanding updates");
 		}
-		result.Normalify(scan_count);
+		result.Normalify(scan_count); // 变长flat vector
 		if (SCAN_COMMITTED) {
-			updates->FetchCommitted(vector_index, result);
+			updates->FetchCommitted(vector_index, result); // 从base info中获取最新数据，包括未提交的更新
 		} else {
 			D_ASSERT(transaction);
-			updates->FetchUpdates(*transaction, vector_index, result);
+			updates->FetchUpdates(*transaction, vector_index, result); // 会通过update info回滚到特定的version
 		}
 	}
 	return scan_count;
@@ -154,21 +157,21 @@ idx_t ColumnData::ScanCount(ColumnScanState &state, Vector &result, idx_t count)
 
 void ColumnData::Select(Transaction &transaction, idx_t vector_index, ColumnScanState &state, Vector &result,
                         SelectionVector &sel, idx_t &count, const TableFilter &filter) {
-	idx_t scan_count = Scan(transaction, vector_index, state, result);
+	idx_t scan_count = Scan(transaction, vector_index, state, result); // 正常扫描数据
 	result.Normalify(scan_count);
 	ColumnSegment::FilterSelection(sel, result, filter, count, FlatVector::Validity(result));
 }
 
 void ColumnData::FilterScan(Transaction &transaction, idx_t vector_index, ColumnScanState &state, Vector &result,
                             SelectionVector &sel, idx_t count) {
-	Scan(transaction, vector_index, state, result);
-	result.Slice(sel, count);
+	Scan(transaction, vector_index, state, result); // 正常扫描数据
+	result.Slice(sel, count); // 用选择子过滤
 }
 
 void ColumnData::FilterScanCommitted(idx_t vector_index, ColumnScanState &state, Vector &result, SelectionVector &sel,
                                      idx_t count, bool allow_updates) {
-	ScanCommitted(vector_index, state, result, allow_updates);
-	result.Slice(sel, count);
+	ScanCommitted(vector_index, state, result, allow_updates); // 扫描已提交数据
+	result.Slice(sel, count); // 用选择子过滤
 }
 
 void ColumnData::Skip(ColumnScanState &state, idx_t count) {
@@ -274,13 +277,15 @@ void ColumnData::RevertAppend(row_t start_row) {
 	transient.RevertAppend(start_row);
 }
 
+// 获取一个Vector的数据
 idx_t ColumnData::Fetch(ColumnScanState &state, row_t row_id, Vector &result) {
 	D_ASSERT(row_id >= 0);
 	D_ASSERT(idx_t(row_id) >= start);
 	// perform the fetch within the segment
-    // Vector可能跨多个Segment,因此不能直接通过row_id进行索引,因为我们要Scan整个Vector的数据
-    // 所以我们要先计算所属于的Vector的row id是多少
-	state.row_index = start + ((row_id - start) / STANDARD_VECTOR_SIZE * STANDARD_VECTOR_SIZE);
+	// Vector可能跨多个Segment,因此不能直接通过row_id进行索引,因为我们要Scan整个Vector的数据
+	// 所以我们要先计算所属于的Vector的row id是多少
+	state.row_index =
+	    start + ((row_id - start) / STANDARD_VECTOR_SIZE * STANDARD_VECTOR_SIZE); // 这应该是对齐到一个Vector的边界
 	state.current = (ColumnSegment *)data.GetSegment(state.row_index);
 	state.internal_index = state.current->start;
 	return ScanVector(state, result, STANDARD_VECTOR_SIZE);
@@ -302,14 +307,14 @@ void ColumnData::FetchRow(Transaction &transaction, ColumnFetchState &state, row
 void ColumnData::Update(Transaction &transaction, idx_t column_index, Vector &update_vector, row_t *row_ids,
                         idx_t offset, idx_t update_count) {
 	lock_guard<mutex> update_guard(update_lock); // 加上update lock
-	if (!updates) {
+	if (!updates) {                              // 延迟初始化嘛
 		updates = make_unique<UpdateSegment>(*this);
 	}
-	Vector base_vector(type);
+	Vector base_vector(type); // column data，因为是一个列的数据，所以只有一个type
 	ColumnScanState state;
 	auto fetch_count = Fetch(state, row_ids[offset], base_vector); // 获取base table data
 
-	base_vector.Normalify(fetch_count);
+	base_vector.Normalify(fetch_count); // 为什么需要nomalify呢
 	updates->Update(transaction, column_index, update_vector, row_ids, offset, update_count, base_vector);
 }
 
@@ -368,7 +373,7 @@ unique_ptr<ColumnCheckpointState> ColumnData::Checkpoint(RowGroup &row_group, Ta
 		// empty table: flush the empty list
 		return checkpoint_state;
 	}
-	lock_guard<mutex> update_guard(update_lock);
+	lock_guard<mutex> update_guard(update_lock); // 获取更新锁
 
 	ColumnDataCheckpointer checkpointer(*this, row_group, *checkpoint_state, checkpoint_info);
 	checkpointer.Checkpoint(move(data.root_node));

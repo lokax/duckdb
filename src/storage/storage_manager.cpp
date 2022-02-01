@@ -111,7 +111,7 @@ void StorageManager::LoadDatabase() {
 
 		//! Load from storage
 		CheckpointManager checkpointer(db); // 创建一个什么都没有的checkpoint manager
-		checkpointer.LoadFromStorage();
+		checkpointer.LoadFromStorage(); // 加载meta data
 		// check if the WAL file exists
 		if (fs.FileExists(wal_path)) {
 			// replay the WAL

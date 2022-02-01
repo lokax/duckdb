@@ -45,7 +45,7 @@ vector<ColumnBinding> LogicalGet::GetColumnBindings() {
 }
 
 void LogicalGet::ResolveTypes() {
-	if (column_ids.empty()) {
+	if (column_ids.empty()) { // column_ids为空时，push一个row id列标识进去
 		column_ids.push_back(COLUMN_IDENTIFIER_ROW_ID);
 	}
 	for (auto &index : column_ids) {

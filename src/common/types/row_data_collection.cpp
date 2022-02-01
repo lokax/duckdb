@@ -48,14 +48,14 @@ vector<unique_ptr<BufferHandle>> RowDataCollection::Build(idx_t added_count, dat
 	vector<BlockAppendEntry> append_entries;
 
 	// first allocate space of where to serialize the keys and payload columns
-	idx_t remaining = added_count;
+	idx_t remaining = added_count; // 剩余数量
 	{
 		// first append to the last block (if any)
-		lock_guard<mutex> append_lock(rdc_lock);
+		lock_guard<mutex> append_lock(rdc_lock); // 加锁
 		count += added_count;
 
-		if (!blocks.empty()) {
-			auto &last_block = blocks.back();
+		if (!blocks.empty()) { // 块不是空
+			auto &last_block = blocks.back(); // 拿出最后一块
 			if (last_block.count < last_block.capacity) {
 				// last block has space: pin the buffer of this block
 				auto handle = buffer_manager.Pin(last_block.block);
@@ -67,7 +67,7 @@ vector<unique_ptr<BufferHandle>> RowDataCollection::Build(idx_t added_count, dat
 		}
 		while (remaining > 0) {
 			// now for the remaining data, allocate new buffers to store the data and append there
-			RowDataBlock new_block(buffer_manager, block_capacity, entry_size);
+			RowDataBlock new_block(buffer_manager, block_capacity, entry_size); // 创建新块
 			auto handle = buffer_manager.Pin(new_block.block);
 
 			// offset the entry sizes array if we have added entries already
@@ -78,7 +78,7 @@ vector<unique_ptr<BufferHandle>> RowDataCollection::Build(idx_t added_count, dat
 			remaining -= append_count;
 
 			blocks.push_back(move(new_block));
-			if (keep_pinned) {
+			if (keep_pinned) { // 如果需要一直pin住，就放进pinned_blocks
 				pinned_blocks.push_back(move(handle));
 			} else {
 				handles.push_back(move(handle));
@@ -87,11 +87,11 @@ vector<unique_ptr<BufferHandle>> RowDataCollection::Build(idx_t added_count, dat
 	}
 	// now set up the key_locations based on the append entries
 	idx_t append_idx = 0;
-	for (auto &append_entry : append_entries) {
+	for (auto &append_entry : append_entries) { // append_entries从AppendToBlock来的
 		idx_t next = append_idx + append_entry.count;
 		if (entry_sizes) {
 			for (; append_idx < next; append_idx++) {
-				key_locations[append_idx] = append_entry.baseptr;
+				key_locations[append_idx] = append_entry.baseptr; // 记录指针位置
 				append_entry.baseptr += entry_sizes[append_idx];
 			}
 		} else {

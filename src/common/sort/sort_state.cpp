@@ -125,7 +125,7 @@ SortLayout::SortLayout(const vector<BoundOrderByNode> &orders)
 LocalSortState::LocalSortState() : initialized(false) {
 }
 
-static idx_t EntriesPerBlock(idx_t width) {
+static idx_t EntriesPerBlock(idx_t width) { // TODO: 是否错了？
 	return (Storage::BLOCK_SIZE + width * STANDARD_VECTOR_SIZE - 1) / width;
 }
 
@@ -156,7 +156,7 @@ void LocalSortState::SinkChunk(DataChunk &sort, DataChunk &payload) {
 	D_ASSERT(sort.size() == payload.size());
 	// Build and serialize sorting data to radix sortable rows
 	auto data_pointers = FlatVector::GetData<data_ptr_t>(addresses);
-	auto handles = radix_sorting_data->Build(sort.size(), data_pointers, nullptr);
+	auto handles = radix_sorting_data->Build(sort.size(), data_pointers, nullptr); // 获取指针到data_pointers中
 	for (idx_t sort_col = 0; sort_col < sort.ColumnCount(); sort_col++) {
 		bool has_null = sort_layout->has_null[sort_col];
 		bool nulls_first = sort_layout->order_by_null_types[sort_col] == OrderByNullType::NULLS_FIRST;
@@ -172,7 +172,7 @@ void LocalSortState::SinkChunk(DataChunk &sort, DataChunk &payload) {
 		blob_chunk.SetCardinality(sort.size());
 		for (idx_t sort_col = 0; sort_col < sort.ColumnCount(); sort_col++) {
 			if (!sort_layout->constant_size[sort_col]) {
-				blob_chunk.data.emplace_back(sort.data[sort_col]);
+				blob_chunk.data.emplace_back(sort.data[sort_col]); // 拷贝吗
 			}
 		}
 		handles = blob_sorting_data->Build(blob_chunk.size(), data_pointers, nullptr);

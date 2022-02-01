@@ -257,7 +257,7 @@ void Executor::WorkOnTasks() {
 		task.reset();
 	}
 }
-
+// 初始化
 void Executor::Initialize(PhysicalOperator *plan) {
 	Reset();
 
@@ -271,7 +271,7 @@ void Executor::Initialize(PhysicalOperator *plan) {
 
 		auto root_pipeline = make_shared<Pipeline>(*this);
 		root_pipeline->sink = nullptr;
-		BuildPipelines(physical_plan, root_pipeline.get());
+		BuildPipelines(physical_plan, root_pipeline.get()); // 构建pipeline
 
 		this->total_pipelines = pipelines.size();
 
@@ -439,7 +439,7 @@ void Executor::BuildPipelines(PhysicalOperator *op, Pipeline *current) {
 				}
 				AddChildPipeline(current);
 			}
-			BuildPipelines(op->children[0].get(), current);
+			BuildPipelines(op->children[0].get(), current); // 左孩子和current是一条pipeline
 			break;
 		case PhysicalOperatorType::DELIM_JOIN: {
 			// duplicate eliminated join

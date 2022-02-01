@@ -211,7 +211,7 @@ void RadixScatterStructVector(Vector &v, VectorData &vdata, idx_t vcount, const 
 void RowOperations::RadixScatter(Vector &v, idx_t vcount, const SelectionVector &sel, idx_t ser_count,
                                  data_ptr_t *key_locations, bool desc, bool has_null, bool nulls_first,
                                  idx_t prefix_len, idx_t width, idx_t offset) {
-	auto is_little_endian = IsLittleEndian();
+	auto is_little_endian = IsLittleEndian(); // 是否时小端机器
 
 	VectorData vdata;
 	v.Orrify(vcount, vdata);

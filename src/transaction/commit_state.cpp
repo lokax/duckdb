@@ -159,7 +159,7 @@ void CommitState::WriteUpdate(UpdateInfo *info) {
 	// initialize the update chunk
 	vector<LogicalType> update_types;
 	if (column_data.type.id() == LogicalTypeId::VALIDITY) {
-		update_types.push_back(LogicalType::BOOLEAN);
+		update_types.push_back(LogicalType::BOOLEAN); // 布尔值
 	} else {
 		update_types.push_back(column_data.type);
 	}
@@ -187,7 +187,7 @@ void CommitState::WriteUpdate(UpdateInfo *info) {
 		}
 	}
 	SelectionVector sel(info->tuples);
-	update_chunk->Slice(sel, info->N);
+	update_chunk->Slice(sel, info->N); // slice一下
 
 	// construct the column index path
 	vector<column_t> column_indexes;
@@ -245,7 +245,7 @@ void CommitState::CommitEntry(UndoFlags type, data_ptr_t data) {
 		if (HAS_LOG && !info->segment->column_data.GetTableInfo().IsTemporary()) {
 			WriteUpdate(info);
 		}
-		info->version_number = commit_id;
+		info->version_number = commit_id; // 更新为commit id
 		break;
 	}
 	default:

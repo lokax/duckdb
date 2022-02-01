@@ -38,7 +38,7 @@ FlushSegment(unique_ptr<ColumnSegment> segment, idx_t segment_size) {
 	auto &block_manager = BlockManager::GetBlockManager(db);
 	auto &checkpoint_manager = writer.GetCheckpointManager();
 
-	bool block_is_constant = segment->stats.statistics->IsConstant();
+	bool block_is_constant = segment->stats.statistics->IsConstant(); // 判断是不是constant block
 
 	block_id_t block_id = INVALID_BLOCK;
 	uint32_t offset_in_block = 0;

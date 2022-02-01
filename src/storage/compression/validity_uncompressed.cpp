@@ -387,7 +387,7 @@ unique_ptr<CompressedSegmentState> ValidityInitSegment(ColumnSegment &segment, b
 	auto &buffer_manager = BufferManager::GetBufferManager(segment.db);
 	if (block_id == INVALID_BLOCK) {  
 		auto handle = buffer_manager.Pin(segment.block);
-		memset(handle->node->buffer, 0xFF, Storage::BLOCK_SIZE); // 全设置成1
+		memset(handle->node->buffer, 0xFF, Storage::BLOCK_SIZE); // 全设置成-1，-1应该代表的是有效
 	}
 	return nullptr;
 }
@@ -422,9 +422,10 @@ idx_t ValidityAppend(ColumnSegment &segment, SegmentStatistics &stats, VectorDat
 }
 
 idx_t ValidityFinalizeAppend(ColumnSegment &segment, SegmentStatistics &stats) {
-	return ((segment.count + STANDARD_VECTOR_SIZE - 1) / STANDARD_VECTOR_SIZE) * ValidityMask::STANDARD_MASK_SIZE;
+	return ((segment.count + STANDARD_VECTOR_SIZE - 1) / STANDARD_VECTOR_SIZE) * ValidityMask::STANDARD_MASK_SIZE; // 一个VECTOR占STANDARD_MASK_SIZE，这段return就是在计算几个Vector总共占了多少空间
 }
 
+// 回滚Append
 void ValidityRevertAppend(ColumnSegment &segment, idx_t start_row) {
 	idx_t start_bit = start_row - segment.start;
 

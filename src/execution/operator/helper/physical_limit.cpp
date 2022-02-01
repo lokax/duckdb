@@ -67,8 +67,8 @@ SinkResultType PhysicalLimit::Sink(ExecutionContext &context, GlobalSinkState &g
 	if (offset == INVALID_INDEX) {
 		offset = GetDelimiter(input, offset_expression.get(), 0);
 	}
-	idx_t max_element = limit + offset;
-	idx_t input_size = input.size();
+	idx_t max_element = limit + offset; // 最大的下标
+	idx_t input_size = input.size(); // 输入的大小
 	if (limit == 0 || state.current_offset >= max_element) {
 		return SinkResultType::FINISHED;
 	}
