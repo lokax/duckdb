@@ -43,7 +43,7 @@ void StatisticsPropagator::UpdateFilterStatistics(BaseStatistics &stats, Express
 		return;
 	}
 	auto &numeric_stats = (NumericStatistics &)stats;
-	if (numeric_stats.min.is_null || numeric_stats.max.is_null) {
+	if (numeric_stats.min.IsNull() || numeric_stats.max.IsNull()) {
 		// no stats available: skip this
 		return;
 	}
@@ -83,7 +83,7 @@ void StatisticsPropagator::UpdateFilterStatistics(BaseStatistics &lstats, BaseSt
 	}
 	auto &left_stats = (NumericStatistics &)lstats;
 	auto &right_stats = (NumericStatistics &)rstats;
-	if (left_stats.min.is_null || left_stats.max.is_null || right_stats.min.is_null || right_stats.max.is_null) {
+	if (left_stats.min.IsNull() || left_stats.max.IsNull() || right_stats.min.IsNull() || right_stats.max.IsNull()) {
 		// no stats available: skip this
 		return;
 	}
@@ -210,6 +210,10 @@ unique_ptr<NodeStatistics> StatisticsPropagator::PropagateStatistics(LogicalFilt
                                                                      unique_ptr<LogicalOperator> *node_ptr) {
 	// first propagate to the child
 	node_stats = PropagateStatistics(filter.children[0]);
+	if (filter.children[0]->type == LogicalOperatorType::LOGICAL_EMPTY_RESULT) {
+		ReplaceWithEmptyResult(*node_ptr);
+		return make_unique<NodeStatistics>(0, 0);
+	}
 
 	// then propagate to each of the expressions
 	for (idx_t i = 0; i < filter.expressions.size(); i++) {

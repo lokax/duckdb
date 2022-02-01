@@ -8,12 +8,14 @@ include_directories(
   ../../third_party/zstd/include)
 
 set(PARQUET_EXTENSION_FILES
+    column_writer.cpp
     parquet-extension.cpp
     parquet_metadata.cpp
     parquet_reader.cpp
     parquet_timestamp.cpp
     parquet_writer.cpp
     parquet_statistics.cpp
+    zstd_file_system.cpp
     column_reader.cpp)
 
 if(NOT CLANG_TIDY)

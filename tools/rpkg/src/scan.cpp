@@ -50,7 +50,7 @@ struct DataFrameScanState : public FunctionOperatorData {
 };
 
 static unique_ptr<FunctionData> dataframe_scan_bind(ClientContext &context, vector<Value> &inputs,
-                                                    unordered_map<string, Value> &named_parameters,
+                                                    named_parameter_map_t &named_parameters,
                                                     vector<LogicalType> &input_table_types,
                                                     vector<string> &input_table_names,
                                                     vector<LogicalType> &return_types, vector<string> &names) {
@@ -77,12 +77,15 @@ static unique_ptr<FunctionData> dataframe_scan_bind(ClientContext &context, vect
 			duckdb_col_type = LogicalType::DOUBLE;
 			break;
 		case RType::FACTOR: {
+			// TODO What about factors that use numeric?
+
 			auto levels = r.Protect(GET_LEVELS(coldata));
-			vector<string> duckdb_levels(LENGTH(levels));
-			for (idx_t level_idx = 0; level_idx < LENGTH(levels); level_idx++) {
-				duckdb_levels[level_idx] = string(CHAR(STRING_ELT(levels, level_idx)));
+			idx_t size = LENGTH(levels);
+			Vector duckdb_levels(LogicalType::VARCHAR, size);
+			for (idx_t level_idx = 0; level_idx < size; level_idx++) {
+				duckdb_levels.SetValue(level_idx, string(CHAR(STRING_ELT(levels, level_idx))));
 			}
-			duckdb_col_type = LogicalType::ENUM(column_name, duckdb_levels);
+			duckdb_col_type = LogicalType::ENUM(column_name, duckdb_levels, size);
 			break;
 		}
 		case RType::STRING:
@@ -108,7 +111,7 @@ static unique_ptr<FunctionData> dataframe_scan_bind(ClientContext &context, vect
 			duckdb_col_type = LogicalType::DATE;
 			break;
 		default:
-			Rf_error("Unsupported column type for scan");
+			cpp11::stop("Unsupported column type for scan");
 		}
 		return_types.push_back(duckdb_col_type);
 	}
@@ -162,20 +165,20 @@ static void dataframe_scan_function(ClientContext &context, const FunctionData *
 			auto data_ptr = INTEGER_POINTER(coldata) + state.position;
 			switch (v.GetType().InternalType()) {
 			case PhysicalType::UINT8:
-				AppendColumnSegment<int, uint8_t, RIntegerType>(data_ptr, v, this_count);
+				AppendColumnSegment<int, uint8_t, RFactorType>(data_ptr, v, this_count);
 				break;
 
 			case PhysicalType::UINT16:
-				AppendColumnSegment<int, uint16_t, RIntegerType>(data_ptr, v, this_count);
+				AppendColumnSegment<int, uint16_t, RFactorType>(data_ptr, v, this_count);
 				break;
 
 			case PhysicalType::UINT32:
-				AppendColumnSegment<int, uint32_t, RIntegerType>(data_ptr, v, this_count);
+				AppendColumnSegment<int, uint32_t, RFactorType>(data_ptr, v, this_count);
 				break;
 
 			default:
-				Rf_error("duckdb_execute_R: Unknown enum type for scan: %s",
-				         TypeIdToString(v.GetType().InternalType()).c_str());
+				cpp11::stop("duckdb_execute_R: Unknown enum type for scan: %s",
+				            TypeIdToString(v.GetType().InternalType()).c_str());
 			}
 			break;
 		}

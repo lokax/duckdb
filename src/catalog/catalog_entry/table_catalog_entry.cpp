@@ -22,6 +22,7 @@
 #include "duckdb/parser/parsed_expression_iterator.hpp"
 #include "duckdb/planner/expression_binder/alter_binder.hpp"
 #include "duckdb/parser/keyword_helper.hpp"
+#include "duckdb/common/field_writer.hpp"
 
 #include <algorithm>
 #include <sstream>
@@ -35,7 +36,7 @@ idx_t TableCatalogEntry::GetColumnIndex(string &column_name, bool if_exists) {
 		entry = name_map.find(StringUtil::Lower(column_name));
 		if (entry == name_map.end()) {
 			if (if_exists) {
-				return INVALID_INDEX;
+				return DConstants::INVALID_INDEX;
 			}
 			throw BinderException("Table \"%s\" does not have a column with name \"%s\"", name, column_name);
 		}
@@ -140,8 +141,8 @@ unique_ptr<CatalogEntry> TableCatalogEntry::AlterEntry(ClientContext &context, A
 static void RenameExpression(ParsedExpression &expr, RenameColumnInfo &info) {
 	if (expr.type == ExpressionType::COLUMN_REF) {
 		auto &colref = (ColumnRefExpression &)expr;
-		if (colref.column_name == info.old_name) {
-			colref.column_name = info.new_name;
+		if (colref.column_names[0] == info.old_name) {
+			colref.column_names[0] = info.new_name;
 		}
 	}
 	ParsedExpressionIterator::EnumerateChildren(
@@ -214,7 +215,7 @@ unique_ptr<CatalogEntry> TableCatalogEntry::RemoveColumn(ClientContext &context,
 	auto create_info = make_unique<CreateTableInfo>(schema->name, name);
 	create_info->temporary = temporary;
 	idx_t removed_index = GetColumnIndex(info.removed_column, info.if_exists);
-	if (removed_index == INVALID_INDEX) {
+	if (removed_index == DConstants::INVALID_INDEX) {
 		return nullptr;
 	}
 	for (idx_t i = 0; i < columns.size(); i++) {
@@ -266,7 +267,7 @@ unique_ptr<CatalogEntry> TableCatalogEntry::RemoveColumn(ClientContext &context,
 		case ConstraintType::UNIQUE: {
 			auto copy = constraint->Copy();
 			auto &unique = (UniqueConstraint &)*copy;
-			if (unique.index != INVALID_INDEX) {
+			if (unique.index != DConstants::INVALID_INDEX) {
 				if (unique.index == removed_index) {
 					throw CatalogException(
 					    "Cannot drop column \"%s\" because there is a UNIQUE constraint that depends on it",
@@ -385,18 +386,26 @@ vector<LogicalType> TableCatalogEntry::GetTypes() {
 
 void TableCatalogEntry::Serialize(Serializer &serializer) {
 	D_ASSERT(!internal);
-	serializer.WriteString(schema->name);
-	serializer.WriteString(name);
-	D_ASSERT(columns.size() <= NumericLimits<uint32_t>::Maximum());
-	serializer.Write<uint32_t>((uint32_t)columns.size());
-	for (auto &column : columns) {
-		column.Serialize(serializer);
-	}
-	D_ASSERT(constraints.size() <= NumericLimits<uint32_t>::Maximum());
-	serializer.Write<uint32_t>((uint32_t)constraints.size());
-	for (auto &constraint : constraints) {
-		constraint->Serialize(serializer);
-	}
+
+	FieldWriter writer(serializer);
+	writer.WriteString(schema->name);
+	writer.WriteString(name);
+	writer.WriteRegularSerializableList(columns);
+	writer.WriteSerializableList(constraints);
+	writer.Finalize();
+}
+
+unique_ptr<CreateTableInfo> TableCatalogEntry::Deserialize(Deserializer &source) {
+	auto info = make_unique<CreateTableInfo>();
+
+	FieldReader reader(source);
+	info->schema = reader.ReadRequired<string>();
+	info->table = reader.ReadRequired<string>();
+	info->columns = reader.ReadRequiredSerializableList<ColumnDefinition, ColumnDefinition>();
+	info->constraints = reader.ReadRequiredSerializableList<Constraint>();
+	reader.Finalize();
+
+	return info;
 }
 
 string TableCatalogEntry::ToSQL() {
@@ -423,7 +432,7 @@ string TableCatalogEntry::ToSQL() {
 		} else if (constraint->type == ConstraintType::UNIQUE) {
 			auto &pk = (UniqueConstraint &)*constraint;
 			vector<string> constraint_columns = pk.columns;
-			if (pk.index != INVALID_INDEX) {
+			if (pk.index != DConstants::INVALID_INDEX) {
 				// no columns specified: single column constraint
 				if (pk.is_primary_key) {
 					pk_columns.insert(pk.index);
@@ -481,6 +490,7 @@ string TableCatalogEntry::ToSQL() {
 	return ss.str();
 }
 
+<<<<<<< HEAD
 unique_ptr<CreateTableInfo> TableCatalogEntry::Deserialize(Deserializer &source) {
 	auto info = make_unique<CreateTableInfo>();
 
@@ -501,6 +511,8 @@ unique_ptr<CreateTableInfo> TableCatalogEntry::Deserialize(Deserializer &source)
 	return info;
 }
 
+=======
+>>>>>>> 180367f931ae37e63cd39de234ea85cfca5cd3af
 unique_ptr<CatalogEntry> TableCatalogEntry::Copy(ClientContext &context) {
 	auto create_info = make_unique<CreateTableInfo>(schema->name, name);
 	for (idx_t i = 0; i < columns.size(); i++) {
@@ -542,14 +554,14 @@ void TableCatalogEntry::CommitAlter(AlterInfo &info) {
 	if (column_name.empty()) {
 		return;
 	}
-	idx_t removed_index = INVALID_INDEX;
+	idx_t removed_index = DConstants::INVALID_INDEX;
 	for (idx_t i = 0; i < columns.size(); i++) {
 		if (columns[i].name == column_name) {
 			removed_index = i;
 			break;
 		}
 	}
-	D_ASSERT(removed_index != INVALID_INDEX);
+	D_ASSERT(removed_index != DConstants::INVALID_INDEX);
 	storage->CommitDropColumn(removed_index);
 }
 

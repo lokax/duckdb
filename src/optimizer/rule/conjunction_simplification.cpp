@@ -42,12 +42,16 @@ unique_ptr<Expression> ConjunctionSimplificationRule::Apply(LogicalOperator &op,
 		return nullptr;
 	}
 	constant_value = constant_value.CastAs(LogicalType::BOOLEAN);
+<<<<<<< HEAD
 	if (constant_value.is_null) { // null值依赖于另一个值是true或者false
+=======
+	if (constant_value.IsNull()) {
+>>>>>>> 180367f931ae37e63cd39de234ea85cfca5cd3af
 		// we can't simplify conjunctions with a constant NULL
 		return nullptr;
 	}
 	if (conjunction->type == ExpressionType::CONJUNCTION_AND) {
-		if (!constant_value.value_.boolean) {
+		if (!BooleanValue::Get(constant_value)) {
 			// FALSE in AND, result of expression is false
 			return make_unique<BoundConstantExpression>(Value::BOOLEAN(false));
 		} else {
@@ -56,7 +60,7 @@ unique_ptr<Expression> ConjunctionSimplificationRule::Apply(LogicalOperator &op,
 		}
 	} else {
 		D_ASSERT(conjunction->type == ExpressionType::CONJUNCTION_OR);
-		if (!constant_value.value_.boolean) {
+		if (!BooleanValue::Get(constant_value)) {
 			// FALSE in OR, remove the expression from the set
 			return RemoveExpression(*conjunction, constant_expr);
 		} else {

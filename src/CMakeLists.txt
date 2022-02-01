@@ -9,6 +9,15 @@ if(NOT MSVC)
       "${CMAKE_CXX_FLAGS_DEBUG} -Wextra -Wno-unused-parameter -Wno-redundant-move"
   )
 endif()
+if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wexit-time-destructors")
+endif()
+
+set(DUCKDB_SYSTEM_LIBS ${CMAKE_DL_LIBS})
+
+if(MSVC OR MINGW)
+  set(DUCKDB_SYSTEM_LIBS ${DUCKDB_SYSTEM_LIBS} ws2_32)
+endif()
 
 if(AMALGAMATION_BUILD)
   if(WIN32)
@@ -16,13 +25,13 @@ if(AMALGAMATION_BUILD)
   endif()
 
   add_library(duckdb SHARED "${PROJECT_SOURCE_DIR}/src/amalgamation/duckdb.cpp")
-  target_link_libraries(duckdb ${CMAKE_DL_LIBS})
+  target_link_libraries(duckdb ${DUCKDB_SYSTEM_LIBS})
   link_threads(duckdb)
   link_extension_libraries(duckdb)
 
   add_library(duckdb_static STATIC
               "${PROJECT_SOURCE_DIR}/src/amalgamation/duckdb.cpp")
-  target_link_libraries(duckdb_static ${CMAKE_DL_LIBS})
+  target_link_libraries(duckdb_static ${DUCKDB_SYSTEM_LIBS})
   link_threads(duckdb_static)
   link_extension_libraries(duckdb_static)
 
@@ -49,13 +58,14 @@ else()
   add_subdirectory(transaction)
 
   set(DUCKDB_LINK_LIBS
-      ${CMAKE_DL_LIBS}
-      fmt
-      pg_query
+      ${DUCKDB_SYSTEM_LIBS}
+      duckdb_fmt
+      duckdb_pg_query
       duckdb_re2
-      miniz
-      utf8proc
-      hyperloglog)
+      duckdb_miniz
+      duckdb_utf8proc
+      duckdb_hyperloglog
+      duckdb_fastpforlib)
 
   add_library(duckdb SHARED ${ALL_OBJECT_FILES})
   target_link_libraries(duckdb ${DUCKDB_LINK_LIBS})

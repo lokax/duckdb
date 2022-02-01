@@ -193,7 +193,7 @@ DataTable::DataTable(ClientContext &context, DataTable &parent, idx_t changed_id
 	vector<LogicalType> scan_types;
 	for (idx_t i = 0; i < bound_columns.size(); i++) {
 		if (bound_columns[i] == COLUMN_IDENTIFIER_ROW_ID) {
-			scan_types.push_back(LOGICAL_ROW_TYPE);
+			scan_types.emplace_back(LogicalType::ROW_TYPE);
 		} else {
 			scan_types.push_back(parent.column_definitions[bound_columns[i]].type);
 		}
@@ -288,7 +288,7 @@ bool DataTable::InitializeScanInRowGroup(TableScanState &state, const vector<col
 
 idx_t DataTable::MaxThreads(ClientContext &context) {
 	idx_t parallel_scan_vector_count = RowGroup::ROW_GROUP_VECTOR_COUNT;
-	if (context.verify_parallelism) {
+	if (ClientConfig::GetConfig(context).verify_parallelism) {
 		parallel_scan_vector_count = 1;
 	}
 	idx_t parallel_scan_tuple_count = STANDARD_VECTOR_SIZE * parallel_scan_vector_count;
@@ -311,7 +311,7 @@ bool DataTable::NextParallelScan(ClientContext &context, ParallelTableScanState 
 	while (state.current_row_group) {
 		idx_t vector_index;
 		idx_t max_row;
-		if (context.verify_parallelism) {
+		if (ClientConfig::GetConfig(context).verify_parallelism) {
 			vector_index = state.vector_index;
 			max_row = state.current_row_group->start +
 			          MinValue<idx_t>(state.current_row_group->count,
@@ -323,7 +323,7 @@ bool DataTable::NextParallelScan(ClientContext &context, ParallelTableScanState 
 		max_row = MinValue<idx_t>(max_row, state.max_row);
 		bool need_to_scan = InitializeScanInRowGroup(scan_state, column_ids, scan_state.table_filters,
 		                                             state.current_row_group, vector_index, max_row);
-		if (context.verify_parallelism) {
+		if (ClientConfig::GetConfig(context).verify_parallelism) {
 			state.vector_index++;
 			if (state.vector_index * STANDARD_VECTOR_SIZE >= state.current_row_group->count) {
 				state.current_row_group = (RowGroup *)state.current_row_group->next.get();
@@ -665,8 +665,9 @@ void DataTable::RevertAppend(idx_t start_row, idx_t count) {
 	if (!info->indexes.Empty()) { // 如果索引不是空
 		idx_t current_row_base = start_row;
 		row_t row_data[STANDARD_VECTOR_SIZE];
-		Vector row_identifiers(LOGICAL_ROW_TYPE, (data_ptr_t)row_data);
-		ScanTableSegment(start_row, count, [&](DataChunk &chunk) { // 扫描
+
+		Vector row_identifiers(LogicalType::ROW_TYPE, (data_ptr_t)row_data);
+		ScanTableSegment(start_row, count, [&](DataChunk &chunk) {
 			for (idx_t i = 0; i < chunk.size(); i++) {
 				row_data[i] = current_row_base + i;
 			}
@@ -689,7 +690,7 @@ bool DataTable::AppendToIndexes(TableAppendState &state, DataChunk &chunk, row_t
 		return true;
 	}
 	// first generate the vector of row identifiers
-	Vector row_identifiers(LOGICAL_ROW_TYPE);
+	Vector row_identifiers(LogicalType::ROW_TYPE);
 	VectorOperations::GenerateSequence(row_identifiers, chunk.size(), row_start, 1);
 
 	vector<Index *> already_appended;
@@ -723,7 +724,7 @@ void DataTable::RemoveFromIndexes(TableAppendState &state, DataChunk &chunk, row
 		return;
 	}
 	// first generate the vector of row identifiers
-	Vector row_identifiers(LOGICAL_ROW_TYPE);
+	Vector row_identifiers(LogicalType::ROW_TYPE);
 	VectorOperations::GenerateSequence(row_identifiers, chunk.size(), row_start, 1);
 
 	// now remove the entries from the indices
@@ -1037,7 +1038,7 @@ void DataTable::AddIndex(unique_ptr<Index> index, const vector<unique_ptr<Expres
 	for (auto &id : index->column_ids) {
 		intermediate_types.push_back(column_definitions[id].type);
 	}
-	intermediate_types.push_back(LOGICAL_ROW_TYPE);
+	intermediate_types.emplace_back(LogicalType::ROW_TYPE);
 	intermediate.Initialize(intermediate_types);
 
 	// initialize an index scan
