@@ -71,7 +71,8 @@ unique_ptr<BaseStatistics> CountPropagateStats(ClientContext &context, BoundAggr
 	if (!expr.distinct && child_stats[0] && !child_stats[0]->CanHaveNull()) {
 		// count on a column without null values: use count star
 		expr.function = CountStarFun::GetFunction();
-		expr.function.name = "count_star";
+		expr.function.name = "count_star"; 
+        // 将count提升为count_star，可能是因为count_star的executor计算量更少一点(代码更少)
 		expr.children.clear();
 	}
 	return nullptr;

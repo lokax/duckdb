@@ -76,7 +76,7 @@ public:
 	//! The physical operator type
 	PhysicalOperatorType type;
 	//! The set of children of the operator
-	vector<unique_ptr<PhysicalOperator>> children; // weng抄
+	vector<unique_ptr<PhysicalOperator>> children;
 	//! The types returned by this physical operator
 	vector<LogicalType> types;
 	//! The estimated cardinality of this physical operator

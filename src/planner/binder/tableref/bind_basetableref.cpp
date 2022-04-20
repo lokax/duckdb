@@ -96,11 +96,11 @@ unique_ptr<BoundTableRef> Binder::Bind(BaseTableRef &ref) {
 	switch (table_or_view->type) {
 	case CatalogType::TABLE_ENTRY: {
 		// base table: create the BoundBaseTableRef node
-		auto table_index = GenerateTableIndex();
-		auto table = (TableCatalogEntry *)table_or_view;
+		auto table_index = GenerateTableIndex(); // 生成table index
+		auto table = (TableCatalogEntry *)table_or_view; // 获取table
 
-		auto scan_function = TableScanFunction::GetFunction(); // scan函数
-		auto bind_data = make_unique<TableScanBindData>(table); // 将table放进去
+		auto scan_function = TableScanFunction::GetFunction(); // 获取table scan函数
+		auto bind_data = make_unique<TableScanBindData>(table); // 存table scan data 
 		auto alias = ref.alias.empty() ? ref.table_name : ref.alias; // 有别名则使用别名，无别名则原表名
 		vector<LogicalType> table_types;
 		vector<string> table_names;

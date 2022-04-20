@@ -41,6 +41,7 @@ string GroupBinder::UnsupportedAggregateMessage() {
 }
 
 BindResult GroupBinder::BindSelectRef(idx_t entry) {
+    // 以及绑定过了
 	if (used_aliases.find(entry) != used_aliases.end()) {
 		// the alias has already been bound to before!
 		// this happens if we group on the same alias twice
@@ -49,6 +50,7 @@ BindResult GroupBinder::BindSelectRef(idx_t entry) {
 		// (the constant grouping will be optimized out later)
 		return BindResult(make_unique<BoundConstantExpression>(Value::INTEGER(42)));
 	}
+    // 越界
 	if (entry >= node.select_list.size()) {
 		throw BinderException("GROUP BY term out of range - should be between 1 and %d", (int)node.select_list.size());
 	}
@@ -91,15 +93,15 @@ BindResult GroupBinder::BindColumnRef(ColumnRefExpression &colref) {
 		}
 		// failed to bind the column and the node is the root expression with depth = 0
 		// check if refers to an alias in the select clause
-		auto alias_name = colref.column_names[0];
-		auto entry = alias_map.find(alias_name);
+		auto alias_name = colref.column_names[0]; // 拿出alias列名
+		auto entry = alias_map.find(alias_name); // 查看下alias_map中是否存在该别名
 		if (entry == alias_map.end()) {
 			// no matching alias found
-			return result;
+			return result; // 找不到，直接返回错误
 		}
 		result = BindResult(BindSelectRef(entry->second));
 		if (!result.HasError()) {
-			group_alias_map[alias_name] = bind_index;
+			group_alias_map[alias_name] = bind_index; 
 		}
 	}
 	return result;

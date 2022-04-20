@@ -369,7 +369,7 @@ public:
 		auto rdata = FlatVector::GetData<RIGHT_TYPE>(right);
 
 		if (LEFT_CONSTANT && ConstantVector::IsNull(left)) {
-			return 0;
+			return 0; // TODO: weng 这个地方不设置吗
 		}
 		if (RIGHT_CONSTANT && ConstantVector::IsNull(right)) {
 			return 0;

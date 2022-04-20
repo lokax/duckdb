@@ -89,7 +89,7 @@ void Executor::ScheduleChildPipeline(Pipeline *parent, const shared_ptr<Pipeline
 	auto parent_entry = event_map.find(parent);
 	PipelineEventStack stack;
 	stack.pipeline_event = pipeline_event.get();
-	stack.pipeline_finish_event = parent_entry->second.pipeline_finish_event;
+	stack.pipeline_finish_event = parent_entry->second.pipeline_finish_event; // 这是干什么？
 	stack.pipeline_complete_event = parent_entry->second.pipeline_complete_event;
 
 	// set up the dependencies for this child pipeline

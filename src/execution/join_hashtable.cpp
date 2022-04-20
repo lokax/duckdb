@@ -259,6 +259,7 @@ void JoinHashTable::InsertHashes(Vector &hashes, idx_t count, data_ptr_t key_loc
 	}
 }
 
+// 相当于论文中的完美哈希吗，毕竟大小已经预先知道了
 void JoinHashTable::Finalize() {
 	// the build has finished, now iterate over all the nodes and construct the final hash table
 	// select a HT that has at least 50% empty space

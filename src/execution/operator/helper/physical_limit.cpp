@@ -62,12 +62,7 @@ SinkResultType PhysicalLimit::Sink(ExecutionContext &context, GlobalSinkState &g
 			throw BinderException("Max value %lld for LIMIT/OFFSET is %lld", offset, 1ULL << 62ULL);
 		}
 	}
-<<<<<<< HEAD
-	idx_t max_element = limit + offset; // 最大的下标
-	idx_t input_size = input.size(); // 输入的大小
-=======
 	idx_t max_element = limit + offset;
->>>>>>> 180367f931ae37e63cd39de234ea85cfca5cd3af
 	if (limit == 0 || state.current_offset >= max_element) {
 		return SinkResultType::FINISHED;
 	}

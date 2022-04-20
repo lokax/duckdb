@@ -81,7 +81,7 @@ TableBinding::TableBinding(const string &alias, vector<LogicalType> types_p, vec
 }
 
 BindResult TableBinding::Bind(ColumnRefExpression &colref, idx_t depth) {
-	auto &column_name = colref.GetColumnName();
+	auto &column_name = colref.GetColumnName(); // 获取列名
 	column_t column_index;
 	if (!TryGetBindingIndex(column_name, column_index)) {
 		return BindResult(ColumnNotFoundError(column_name));

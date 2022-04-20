@@ -279,9 +279,10 @@ void BindContext::GenerateAllColumnExpressions(StarExpression &expr,
 		// SELECT * case
 		// bind all expressions of each table in-order
 		unordered_set<UsingColumnSet *> handled_using_columns;
-		for (auto &entry : bindings_list) {
+		for (auto &entry : bindings_list) { // 遍历所有的binding
 			auto binding = entry.second;
-			for (auto &column_name : binding->names) {
+			for (auto &column_name : binding->names) { // 获取binding里面的所有列
+                // 检查一下是否被排除掉
 				if (CheckExclusionList(expr, binding, column_name, new_select_list, excluded_columns)) {
 					continue;
 				}

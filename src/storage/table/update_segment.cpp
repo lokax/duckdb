@@ -534,13 +534,8 @@ void UpdateSegment::CleanupUpdate(UpdateInfo *info) {
 //===--------------------------------------------------------------------===//
 // Check for conflicts in update
 //===--------------------------------------------------------------------===//
-<<<<<<< HEAD
-static void CheckForConflicts(UpdateInfo *info, Transaction &transaction, row_t *ids, const SelectionVector &sel, idx_t count, row_t offset,
-                              UpdateInfo *&node) {
-=======
 static void CheckForConflicts(UpdateInfo *info, Transaction &transaction, row_t *ids, const SelectionVector &sel,
                               idx_t count, row_t offset, UpdateInfo *&node) {
->>>>>>> 180367f931ae37e63cd39de234ea85cfca5cd3af
 	if (!info) {
 		return;
 	}
@@ -552,10 +547,6 @@ static void CheckForConflicts(UpdateInfo *info, Transaction &transaction, row_t 
 		// as both ids and info->tuples are sorted, this is similar to a merge join
 		idx_t i = 0, j = 0;
 		while (true) {
-<<<<<<< HEAD
-           // std::cout << "sel get = " << sel.get_index(i) << std::endl;
-=======
->>>>>>> 180367f931ae37e63cd39de234ea85cfca5cd3af
 			auto id = ids[sel.get_index(i)] - offset;
 			if (id == info->tuples[j]) {
 				throw TransactionException("Conflict on update!");
@@ -1121,11 +1112,7 @@ void UpdateSegment::Update(Transaction &transaction, idx_t column_index, Vector 
 	if (root->info[vector_index]) {
 		// there is already a version here, check if there are any conflicts and search for the node that belongs to
 		// this transaction in the version chain
-<<<<<<< HEAD
 		auto base_info = root->info[vector_index]->info.get(); // base info也许是一个dummy节点？
-=======
-		auto base_info = root->info[vector_index]->info.get();
->>>>>>> 180367f931ae37e63cd39de234ea85cfca5cd3af
 		CheckForConflicts(base_info->next, transaction, ids, sel, count, vector_offset, node);
 
 		// there are no conflicts

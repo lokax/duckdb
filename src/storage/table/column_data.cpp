@@ -305,30 +305,17 @@ void ColumnData::FetchRow(Transaction &transaction, ColumnFetchState &state, row
 }
 
 void ColumnData::Update(Transaction &transaction, idx_t column_index, Vector &update_vector, row_t *row_ids,
-<<<<<<< HEAD
-                        idx_t offset, idx_t update_count) {
-	lock_guard<mutex> update_guard(update_lock); // 加上update lock
-	if (!updates) {                              // 延迟初始化嘛
-=======
                         idx_t update_count) {
 	lock_guard<mutex> update_guard(update_lock);
 	if (!updates) {
->>>>>>> 180367f931ae37e63cd39de234ea85cfca5cd3af
 		updates = make_unique<UpdateSegment>(*this);
 	}
 	Vector base_vector(type); // column data，因为是一个列的数据，所以只有一个type
 	ColumnScanState state;
-<<<<<<< HEAD
-	auto fetch_count = Fetch(state, row_ids[offset], base_vector); // 获取base table data
-
-	base_vector.Normalify(fetch_count); // 为什么需要nomalify呢
-	updates->Update(transaction, column_index, update_vector, row_ids, offset, update_count, base_vector);
-=======
 	auto fetch_count = Fetch(state, row_ids[0], base_vector);
 
 	base_vector.Normalify(fetch_count);
 	updates->Update(transaction, column_index, update_vector, row_ids, update_count, base_vector);
->>>>>>> 180367f931ae37e63cd39de234ea85cfca5cd3af
 }
 
 void ColumnData::UpdateColumn(Transaction &transaction, const vector<column_t> &column_path, Vector &update_vector,

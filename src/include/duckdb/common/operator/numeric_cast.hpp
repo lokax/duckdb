@@ -10,6 +10,7 @@
 
 #include "duckdb/common/operator/cast_operators.hpp"
 #include "duckdb/common/types/hugeint.hpp"
+#include <type_traits>
 
 namespace duckdb {
 

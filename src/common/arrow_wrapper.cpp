@@ -92,7 +92,7 @@ int ResultArrowArrayStreamWrapper::MyStreamGetSchema(struct ArrowArrayStream *st
 }
 
 int ResultArrowArrayStreamWrapper::MyStreamGetNext(struct ArrowArrayStream *stream, struct ArrowArray *out) {
-	if (!stream->release) {
+	if (!stream->release) { // stream已经释放
 		return -1;
 	}
 	auto my_stream = (ResultArrowArrayStreamWrapper *)stream->private_data;

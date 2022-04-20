@@ -40,11 +40,12 @@ void Event::Finish() {
 	FinalizeFinish();
 }
 
-void Event::AddDependency(Event &event) { // event依赖这个事件去完成
+void Event::AddDependency(Event &event) {
 	total_dependencies++;
 	event.parents.push_back(weak_ptr<Event>(shared_from_this()));
 }
 
+// 增加finished tasks，如果该事件的所有任务都完成，调用Finish
 void Event::FinishTask() {
 	D_ASSERT(finished_tasks.load() < total_tasks.load());
 	idx_t current_tasks = total_tasks;

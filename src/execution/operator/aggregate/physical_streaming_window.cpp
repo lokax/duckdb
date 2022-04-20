@@ -18,13 +18,14 @@ public:
 	}
 
 	void Initialize(DataChunk &input, const vector<unique_ptr<Expression>> &expressions) {
-		for (idx_t expr_idx = 0; expr_idx < expressions.size(); expr_idx++) {
+		// 遍历每一个表达式，判断表达式的类型
+        for (idx_t expr_idx = 0; expr_idx < expressions.size(); expr_idx++) {
 			auto &expr = *expressions[expr_idx];
 			switch (expr.GetExpressionType()) {
 			case ExpressionType::WINDOW_FIRST_VALUE: {
-				auto &wexpr = (BoundWindowExpression &)expr;
+				auto &wexpr = (BoundWindowExpression &)expr; // 类型转换成窗口表达式
 				auto &ref = (BoundReferenceExpression &)*wexpr.children[0];
-				const_vectors.push_back(make_unique<Vector>(input.data[ref.index].GetValue(0)));
+				const_vectors.push_back(make_unique<Vector>(input.data[ref.index].GetValue(0))); // 拿出第一个值
 				break;
 			}
 			case ExpressionType::WINDOW_PERCENT_RANK: {
@@ -61,13 +62,14 @@ OperatorResultType PhysicalStreamingWindow::Execute(ExecutionContext &context, D
 	}
 	// Put payload columns in place
 	for (idx_t col_idx = 0; col_idx < input.data.size(); col_idx++) {
-		chunk.data[col_idx].Reference(input.data[col_idx]);
+		chunk.data[col_idx].Reference(input.data[col_idx]); // 引用一下
 	}
 	// Compute window function
-	const idx_t count = input.size();
+	const idx_t count = input.size(); // 输入数据的个数
+    // 遍历每一个表达式
 	for (idx_t expr_idx = 0; expr_idx < select_list.size(); expr_idx++) {
 		idx_t col_idx = input.data.size() + expr_idx;
-		auto &expr = *select_list[expr_idx];
+		auto &expr = *select_list[expr_idx]; // 取出对应的表达式
 		switch (expr.GetExpressionType()) {
 		case ExpressionType::WINDOW_FIRST_VALUE:
 		case ExpressionType::WINDOW_PERCENT_RANK:

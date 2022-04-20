@@ -17,6 +17,7 @@
 #include "duckdb/storage/table/standard_column_data.hpp"
 
 #include "duckdb/common/chrono.hpp"
+#include <iostream>
 
 namespace duckdb {
 

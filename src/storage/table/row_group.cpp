@@ -766,15 +766,10 @@ void RowGroup::Serialize(RowGroupPointer &pointer, Serializer &main_serializer) 
 
 RowGroupPointer RowGroup::Deserialize(Deserializer &main_source, const vector<ColumnDefinition> &columns) {
 	RowGroupPointer result;
-<<<<<<< HEAD
-	result.row_start = source.Read<uint64_t>(); // 获取row start是多少
-	result.tuple_count = source.Read<uint64_t>(); // 获取count是多少
-=======
 
 	FieldReader reader(main_source);
 	result.row_start = reader.ReadRequired<uint64_t>();
 	result.tuple_count = reader.ReadRequired<uint64_t>();
->>>>>>> 180367f931ae37e63cd39de234ea85cfca5cd3af
 
 	result.data_pointers.reserve(columns.size());
 	result.statistics.reserve(columns.size());
@@ -790,13 +785,9 @@ RowGroupPointer RowGroup::Deserialize(Deserializer &main_source, const vector<Co
 		pointer.offset = source.Read<uint64_t>();
 		result.data_pointers.push_back(pointer);
 	}
-<<<<<<< HEAD
-	result.versions = DeserializeDeletes(source); // 获取version信息
-=======
 	result.versions = DeserializeDeletes(source);
 
 	reader.Finalize();
->>>>>>> 180367f931ae37e63cd39de234ea85cfca5cd3af
 	return result;
 }
 

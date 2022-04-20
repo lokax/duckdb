@@ -22,12 +22,7 @@ BindResult SelectBinder::BindExpression(unique_ptr<ParsedExpression> *expr_ptr, 
 	auto &expr = **expr_ptr;
 	// check if the expression binds to one of the groups
 	auto group_index = TryBindGroup(expr, depth);
-<<<<<<< HEAD
-	if (group_index != INVALID_INDEX) {
-        std::cout << "bind group" << std::endl;
-=======
 	if (group_index != DConstants::INVALID_INDEX) {
->>>>>>> 180367f931ae37e63cd39de234ea85cfca5cd3af
 		return BindGroup(expr, depth, group_index);
 	}
 	switch (expr.expression_class) {

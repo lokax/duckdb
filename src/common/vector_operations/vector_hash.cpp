@@ -19,7 +19,7 @@ struct HashOp {
 };
 
 template <bool HAS_RSEL, class T>
-static inline void TightLoopHash(T *__restrict ldata, hash_t *__restrict result_data, const SelectionVector *rsel,
+static inline void TightLoopHash(T *__restrict ldata, hash_t *__restrict result_data, const SelectionVector * rsel,
                                  idx_t count, const SelectionVector *__restrict sel_vector, ValidityMask &mask) {
 	if (!mask.AllValid()) {
 		for (idx_t i = 0; i < count; i++) {
@@ -171,7 +171,7 @@ static inline hash_t CombineHashScalar(hash_t a, hash_t b) {
 
 template <bool HAS_RSEL, class T>
 static inline void TightLoopCombineHashConstant(T *__restrict ldata, hash_t constant_hash, hash_t *__restrict hash_data,
-                                                const SelectionVector *rsel, idx_t count,
+                                                const SelectionVector * rsel, idx_t count,
                                                 const SelectionVector *__restrict sel_vector, ValidityMask &mask) {
 	if (!mask.AllValid()) {
 		for (idx_t i = 0; i < count; i++) {
@@ -191,7 +191,7 @@ static inline void TightLoopCombineHashConstant(T *__restrict ldata, hash_t cons
 }
 
 template <bool HAS_RSEL, class T>
-static inline void TightLoopCombineHash(T *__restrict ldata, hash_t *__restrict hash_data, const SelectionVector *rsel,
+static inline void TightLoopCombineHash(T *__restrict ldata, hash_t *__restrict hash_data, const SelectionVector * rsel,
                                         idx_t count, const SelectionVector *__restrict sel_vector, ValidityMask &mask) {
 	if (!mask.AllValid()) {
 		for (idx_t i = 0; i < count; i++) {

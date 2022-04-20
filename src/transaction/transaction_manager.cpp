@@ -294,7 +294,7 @@ void TransactionManager::RemoveTransaction(Transaction *transaction) noexcept {
 			// we can only safely do the actual memory cleanup when all the
 			// currently active queries have finished running! (actually,
 			// when all the currently active scans have finished running...)
-			recently_committed_transactions[i]->Cleanup();
+			recently_committed_transactions[i]->Cleanup(); // 虽然断链了，但还是有可能有人获取了update info并且在处理
 			// store the current highest active query
 			recently_committed_transactions[i]->highest_active_query = current_query_number;
 			// move it to the list of transactions awaiting GC

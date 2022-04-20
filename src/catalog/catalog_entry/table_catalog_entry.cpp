@@ -490,29 +490,6 @@ string TableCatalogEntry::ToSQL() {
 	return ss.str();
 }
 
-<<<<<<< HEAD
-unique_ptr<CreateTableInfo> TableCatalogEntry::Deserialize(Deserializer &source) {
-	auto info = make_unique<CreateTableInfo>();
-
-	info->schema = source.Read<string>(); // schema名字
-	info->table = source.Read<string>(); // 表名
-	auto column_count = source.Read<uint32_t>(); // 列的数量
-
-	for (uint32_t i = 0; i < column_count; i++) {
-		auto column = ColumnDefinition::Deserialize(source);
-		info->columns.push_back(move(column));
-	}
-	auto constraint_count = source.Read<uint32_t>();
-
-	for (uint32_t i = 0; i < constraint_count; i++) {
-		auto constraint = Constraint::Deserialize(source);
-		info->constraints.push_back(move(constraint));
-	}
-	return info;
-}
-
-=======
->>>>>>> 180367f931ae37e63cd39de234ea85cfca5cd3af
 unique_ptr<CatalogEntry> TableCatalogEntry::Copy(ClientContext &context) {
 	auto create_info = make_unique<CreateTableInfo>(schema->name, name);
 	for (idx_t i = 0; i < columns.size(); i++) {

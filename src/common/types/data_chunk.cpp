@@ -312,6 +312,7 @@ void InitializeChild(DuckDBArrowArrayChildHolder &child_holder, idx_t size) {
 	child.length = size;
 }
 
+// buffer[0]是validate mask
 void SetChildValidityMask(Vector &vector, ArrowArray &child) {
 	D_ASSERT(vector.GetVectorType() == VectorType::FLAT_VECTOR);
 	auto &mask = FlatVector::Validity(vector);
@@ -546,7 +547,7 @@ void SetArrowChild(DuckDBArrowArrayChildHolder &child_holder, const LogicalType 
 	case LogicalTypeId::TIME:
 	case LogicalTypeId::TIMESTAMP_TZ:
 	case LogicalTypeId::TIME_TZ:
-		child_holder.vector = make_unique<Vector>(data);
+		child_holder.vector = make_unique<Vector>(data); // 创建一个vector
 		child.n_buffers = 2;
 		child.buffers[1] = (void *)FlatVector::GetData(*child_holder.vector);
 		break;

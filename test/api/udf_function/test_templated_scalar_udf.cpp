@@ -27,7 +27,7 @@ TEST_CASE("UDF functions with template", "[coverage][.]") {
 
 	// Create the UDF functions into the catalog
 	for (LogicalType sql_type : sql_templated_types) {
-		func_name = StringUtil::Lower(LogicalTypeIdToString(sql_type.id()));
+		func_name = StringUtil::Lower(LogicalTypeIdToString(sql_type.id())); // 函数名字
 
 		switch (sql_type.id()) {
 		case LogicalTypeId::BOOLEAN: {

@@ -74,7 +74,8 @@ void RowOperations::CombineStates(RowLayout &layout, Vector &sources, Vector &ta
 	}
 
 	//	Move to the first aggregate states
-	VectorOperations::AddInPlace(sources, layout.GetAggrOffset(), count);
+	VectorOperations::AddInPlace(sources, layout.GetAggrOffset(), count); 
+    // 在地址上加上一个到Aggr的Offset
 	VectorOperations::AddInPlace(targets, layout.GetAggrOffset(), count);
 	for (auto &aggr : layout.GetAggregates()) {
 		D_ASSERT(aggr.function.combine);

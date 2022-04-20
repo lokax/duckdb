@@ -35,7 +35,7 @@ public:
 
 public:
 	TaskExecutionResult ExecuteTask(TaskExecutionMode mode) override {
-		if (!pipeline_executor) {
+		if (!pipeline_executor) { 
 			pipeline_executor = make_unique<PipelineExecutor>(pipeline.GetClientContext(), pipeline);
 		}
 		if (mode == TaskExecutionMode::PROCESS_PARTIAL) {
@@ -91,18 +91,18 @@ void Pipeline::ScheduleSequentialTask(shared_ptr<Event> &event) {
 }
 
 bool Pipeline::ScheduleParallel(shared_ptr<Event> &event) {
-	if (!sink->ParallelSink()) {
+	if (!sink->ParallelSink()) { // 不能并行sink
 		return false;
 	}
-	if (!source->ParallelSource()) {
+	if (!source->ParallelSource()) { // 不是并行source
 		return false;
 	}
 	for (auto &op : operators) {
-		if (!op->ParallelOperator()) {
+		if (!op->ParallelOperator()) { // 不是并行operator
 			return false;
 		}
 	}
-	idx_t max_threads = source_state->MaxThreads();
+	idx_t max_threads = source_state->MaxThreads(); // 获取source_state的max thread num
 	return LaunchScanTasks(event, max_threads);
 }
 
@@ -117,9 +117,9 @@ void Pipeline::Schedule(shared_ptr<Event> &event) {
 
 bool Pipeline::LaunchScanTasks(shared_ptr<Event> &event, idx_t max_threads) {
 	// split the scan up into parts and schedule the parts
-	auto &scheduler = TaskScheduler::GetScheduler(executor.context);
-	idx_t active_threads = scheduler.NumberOfThreads();
-	if (max_threads > active_threads) {
+	auto &scheduler = TaskScheduler::GetScheduler(executor.context); // 获取调度器
+	idx_t active_threads = scheduler.NumberOfThreads(); // 获取线程的数量， + 1是还有一个当前线程
+	if (max_threads > active_threads) { // max thread num超过当前可用thread
 		max_threads = active_threads;
 	}
 	if (max_threads <= 1) {
@@ -129,7 +129,7 @@ bool Pipeline::LaunchScanTasks(shared_ptr<Event> &event, idx_t max_threads) {
 
 	// launch a task for every thread
 	vector<unique_ptr<Task>> tasks;
-	for (idx_t i = 0; i < max_threads; i++) {
+	for (idx_t i = 0; i < max_threads; i++) { // 创建max thred num个任务
 		tasks.push_back(make_unique<PipelineTask>(*this, event));
 	}
 	event->SetTasks(move(tasks));

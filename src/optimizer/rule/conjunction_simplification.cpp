@@ -42,11 +42,8 @@ unique_ptr<Expression> ConjunctionSimplificationRule::Apply(LogicalOperator &op,
 		return nullptr;
 	}
 	constant_value = constant_value.CastAs(LogicalType::BOOLEAN);
-<<<<<<< HEAD
-	if (constant_value.is_null) { // null值依赖于另一个值是true或者false
-=======
+
 	if (constant_value.IsNull()) {
->>>>>>> 180367f931ae37e63cd39de234ea85cfca5cd3af
 		// we can't simplify conjunctions with a constant NULL
 		return nullptr;
 	}

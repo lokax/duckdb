@@ -46,14 +46,14 @@ GroupedAggregateHashTable::GroupedAggregateHashTable(BufferManager &buffer_manag
 	layout.Initialize(move(group_types_p), move(aggregate_objects_p));
 
 	// HT layout
-	hash_offset = layout.GetOffsets()[layout.ColumnCount() - 1];
+	hash_offset = layout.GetOffsets()[layout.ColumnCount() - 1]; // 最后一个位置是存的Hash值
 
-	tuple_size = layout.GetRowWidth();
+	tuple_size = layout.GetRowWidth(); // 一行的宽度
 
 	D_ASSERT(tuple_size <= Storage::BLOCK_SIZE);
-	tuples_per_block = Storage::BLOCK_SIZE / tuple_size;
-	hashes_hdl = buffer_manager.Allocate(Storage::BLOCK_SIZE);
-	hashes_hdl_ptr = hashes_hdl->Ptr();
+	tuples_per_block = Storage::BLOCK_SIZE / tuple_size; // 计算每一个Block能存多少数据
+	hashes_hdl = buffer_manager.Allocate(Storage::BLOCK_SIZE); // 分配一个Block的内存
+	hashes_hdl_ptr = hashes_hdl->Ptr(); // 指针
 
 	switch (entry_type) {
 	case HtEntryType::HT_WIDTH_64: {
@@ -62,6 +62,7 @@ GroupedAggregateHashTable::GroupedAggregateHashTable(BufferManager &buffer_manag
 		break;
 	}
 	case HtEntryType::HT_WIDTH_32: {
+        // 左移56位
 		hash_prefix_shift = (HASH_WIDTH - sizeof(aggr_ht_entry_32::salt)) * 8;
 		Resize<aggr_ht_entry_32>(STANDARD_VECTOR_SIZE * 2);
 		break;
@@ -216,14 +217,14 @@ void GroupedAggregateHashTable::Resize(idx_t size) {
 
 	// size needs to be a power of 2
 	D_ASSERT((size & (size - 1)) == 0);
-	bitmask = size - 1;
+	bitmask = size - 1; // 位掩码
 
 	auto byte_size = size * sizeof(ENTRY);
 	if (byte_size > (idx_t)Storage::BLOCK_SIZE) {
-		hashes_hdl = buffer_manager.Allocate(byte_size);
+		hashes_hdl = buffer_manager.Allocate(byte_size); // 内存放不下，再次分配更大的空间
 		hashes_hdl_ptr = hashes_hdl->Ptr();
 	}
-	memset(hashes_hdl_ptr, 0, byte_size);
+	memset(hashes_hdl_ptr, 0, byte_size); // 快速初始化为0
 	hashes_end_ptr = hashes_hdl_ptr + byte_size;
 	capacity = size;
 
@@ -233,7 +234,7 @@ void GroupedAggregateHashTable::Resize(idx_t size) {
 		auto hash = Load<hash_t>(ptr + hash_offset);
 		D_ASSERT((hash & bitmask) == (hash % capacity));
 		auto entry_idx = (idx_t)hash & bitmask;
-		while (hashes_arr[entry_idx].page_nr > 0) {
+		while (hashes_arr[entry_idx].page_nr > 0) { // 开放寻址法？
 			entry_idx++;
 			if (entry_idx >= capacity) {
 				entry_idx = 0;
@@ -267,9 +268,9 @@ idx_t GroupedAggregateHashTable::AddChunk(DataChunk &groups, Vector &group_hashe
 	// dummy
 	SelectionVector new_groups(STANDARD_VECTOR_SIZE);
 
-	D_ASSERT(groups.ColumnCount() + 1 == layout.ColumnCount());
+	D_ASSERT(groups.ColumnCount() + 1 == layout.ColumnCount()); // layout的column多了一个Hash Value
 	for (idx_t i = 0; i < groups.ColumnCount(); i++) {
-		D_ASSERT(groups.GetTypes()[i] == layout.GetTypes()[i]);
+		D_ASSERT(groups.GetTypes()[i] == layout.GetTypes()[i]); // 校验一下
 	}
 
 	Vector addresses(LogicalType::POINTER);
@@ -471,7 +472,7 @@ idx_t GroupedAggregateHashTable::FindOrCreateGroupsInternal(DataChunk &groups, V
 					addresses_ptr[index] = page_ptr + page_offset;
 
 				} else {
-					no_match_vector.set_index(no_match_count++, index);
+					no_match_vector.set_index(no_match_count++, index); // 不匹配
 				}
 			}
 		}
@@ -533,9 +534,9 @@ void GroupedAggregateHashTable::FlushMove(Vector &source_addresses, Vector &sour
 	D_ASSERT(source_hashes.GetType() == LogicalType::HASH);
 
 	DataChunk groups;
-	groups.Initialize(vector<LogicalType>(layout.GetTypes().begin(), layout.GetTypes().end() - 1));
-	groups.SetCardinality(count);
-	for (idx_t i = 0; i < groups.ColumnCount(); i++) {
+	groups.Initialize(vector<LogicalType>(layout.GetTypes().begin(), layout.GetTypes().end() - 1)); // 不带Hash Value Type
+	groups.SetCardinality(count); // 设置DataChunk的大小
+	for (idx_t i = 0; i < groups.ColumnCount(); i++) { // 遍历了
 		auto &column = groups.data[i];
 		const auto col_offset = layout.GetOffsets()[i];
 		RowOperations::Gather(source_addresses, *FlatVector::IncrementalSelectionVector(), column,
@@ -682,7 +683,7 @@ void GroupedAggregateHashTable::Finalize() {
 	}
 
 	// early release hashes, not needed for partition/scan
-	hashes_hdl.reset();
+	hashes_hdl.reset(); // Scan不需要Hash，单纯扫描就可以了，为什么？因为这是聚合不是Join
 	is_finalized = true;
 }
 

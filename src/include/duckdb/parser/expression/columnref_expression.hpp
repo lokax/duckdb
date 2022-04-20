@@ -28,6 +28,7 @@ public:
 	vector<string> column_names;
 
 public:
+    // 名称是否为table_name.column_name
 	bool IsQualified() const;
 	const string &GetColumnName() const;
 	const string &GetTableName() const;

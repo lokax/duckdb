@@ -23,7 +23,7 @@ public:
 	//! Table name
 	string table_name;
 	//! Aliases for the column names
-	vector<string> column_name_alias;
+	vector<string> column_name_alias; // 别名？
 
 public:
 	string ToString() const override;

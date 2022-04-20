@@ -9,16 +9,16 @@
 #include "duckdb/parser/query_node/select_node.hpp"
 #include "duckdb/parser/tableref/joinref.hpp"
 #include "duckdb/planner/binder.hpp"
+#include "duckdb/planner/expression_binder/aggregate_binder.hpp"
 #include "duckdb/planner/expression_binder/column_alias_binder.hpp"
 #include "duckdb/planner/expression_binder/constant_binder.hpp"
 #include "duckdb/planner/expression_binder/group_binder.hpp"
 #include "duckdb/planner/expression_binder/having_binder.hpp"
-#include "duckdb/planner/expression_binder/qualify_binder.hpp"
 #include "duckdb/planner/expression_binder/order_binder.hpp"
+#include "duckdb/planner/expression_binder/qualify_binder.hpp"
 #include "duckdb/planner/expression_binder/select_binder.hpp"
 #include "duckdb/planner/expression_binder/where_binder.hpp"
 #include "duckdb/planner/query_node/bound_select_node.hpp"
-#include "duckdb/planner/expression_binder/aggregate_binder.hpp"
 
 namespace duckdb {
 
@@ -277,7 +277,7 @@ unique_ptr<BoundQueryNode> Binder::BindNode(SelectNode &statement) {
 		result->where_clause = where_binder.Bind(condition);
 	}
 
-    // result modifiers应该是因为结果发生了改变，比如说去重或者排序
+	// result modifiers应该是因为结果发生了改变，比如说去重或者排序
 	// now bind all the result modifiers; including DISTINCT and ORDER BY targets
 	OrderBinder order_binder({this}, result->projection_index, statement, alias_map, projection_map);
 	BindModifiers(order_binder, statement, *result);

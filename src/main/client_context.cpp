@@ -882,7 +882,7 @@ bool ClientContext::UpdateFunctionInfoFromEntry(ScalarFunctionCatalogEntry *exis
 		throw InternalException("Registering function without scalar function definitions!");
 	}
 	bool need_rewrite_entry = false;
-	idx_t size_new_func = new_info->functions.size();
+	idx_t size_new_func = new_info->functions.size(); // 新函数的数量
 	for (idx_t exist_idx = 0; exist_idx < existing_function->functions.size(); ++exist_idx) {
 		bool can_add = true;
 		for (idx_t new_idx = 0; new_idx < size_new_func; ++new_idx) {

@@ -8,6 +8,7 @@
 #include "duckdb/planner/table_filter.hpp"
 
 #include "duckdb/storage/table/column_segment.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -454,6 +455,7 @@ void LocalStorage::AddColumn(DataTable *old_dt, DataTable *new_dt, ColumnDefinit
 
 	table_storage.erase(entry);
 	table_storage[new_dt] = move(new_storage);
+    std::cout << "table storage size = " << table_storage.size() << std::endl; 
 }
 
 void LocalStorage::ChangeType(DataTable *old_dt, DataTable *new_dt, idx_t changed_idx, const LogicalType &target_type,

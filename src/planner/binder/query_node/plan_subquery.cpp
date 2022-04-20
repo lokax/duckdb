@@ -38,6 +38,7 @@ static unique_ptr<Expression> PlanUncorrelatedSubquery(Binder &binder, BoundSubq
 		aggregate->AddChild(move(plan));
 		plan = move(aggregate);
 
+        // 注意这里面传进去的是aggregate_index
 		// now we push a projection with a comparison to 1
 		auto left_child = make_unique<BoundColumnRefExpression>(idx_type, ColumnBinding(aggregate_index, 0));
 		auto right_child = make_unique<BoundConstantExpression>(Value::Numeric(idx_type, 1));
@@ -212,7 +213,7 @@ static unique_ptr<Expression> PlanCorrelatedSubquery(Binder &binder, BoundSubque
 		auto delim_join = CreateDuplicateEliminatedJoin(correlated_columns, JoinType::MARK);
 		delim_join->mark_index = mark_index;
 		// LHS
-		delim_join->AddChild(move(root));
+		delim_join->AddChild(move(root)); // 比如说from table
 		// RHS
 		FlattenDependentJoins flatten(binder, correlated_columns);
 		flatten.DetectCorrelatedExpressions(plan.get());
@@ -298,7 +299,7 @@ unique_ptr<Expression> Binder::PlanSubquery(BoundSubqueryExpression &expr, uniqu
 	// note that we do not plan nested subqueries yet
 	auto sub_binder = Binder::CreateBinder(context);
 	sub_binder->plan_subquery = false;
-	auto subquery_root = sub_binder->CreatePlan(*expr.subquery);
+	auto subquery_root = sub_binder->CreatePlan(*expr.subquery); // 通过subbinder创建subplan
 	D_ASSERT(subquery_root);
 
 	// now we actually flatten the subquery
@@ -318,7 +319,7 @@ unique_ptr<Expression> Binder::PlanSubquery(BoundSubqueryExpression &expr, uniqu
 }
 
 void Binder::PlanSubqueries(unique_ptr<Expression> *expr_ptr, unique_ptr<LogicalOperator> *root) {
-	if (!*expr_ptr) {
+	if (!*expr_ptr) { // 如果表达式时空，直接返回
 		return;
 	}
 	auto &expr = **expr_ptr;
