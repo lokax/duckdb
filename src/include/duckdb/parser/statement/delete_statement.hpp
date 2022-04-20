@@ -21,6 +21,10 @@ public:
 	unique_ptr<ParsedExpression> condition;
 	unique_ptr<TableRef> table;
 	vector<unique_ptr<TableRef>> using_clauses;
+	vector<unique_ptr<ParsedExpression>> returning_list;
+
+protected:
+	DeleteStatement(const DeleteStatement &other);
 
 public:
 	unique_ptr<SQLStatement> Copy() const override;

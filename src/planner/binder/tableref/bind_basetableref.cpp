@@ -62,14 +62,15 @@ unique_ptr<BoundTableRef> Binder::Bind(BaseTableRef &ref) {
 	}
 	// not a CTE
 	// extract a table or view from the catalog
+	auto &catalog = Catalog::GetCatalog(context);
 	auto table_or_view =
-	    Catalog::GetCatalog(context).GetEntry(context, CatalogType::TABLE_ENTRY, ref.schema_name, ref.table_name,
-	                                          ref.schema_name.empty() ? true : false, error_context);
+	    catalog.GetEntry(context, CatalogType::TABLE_ENTRY, ref.schema_name, ref.table_name, true, error_context);
 	if (!table_or_view) {
+		auto table_name = ref.schema_name.empty() ? ref.table_name : (ref.schema_name + "." + ref.table_name);
 		// table could not be found: try to bind a replacement scan
 		auto &config = DBConfig::GetConfig(context);
 		for (auto &scan : config.replacement_scans) {
-			auto replacement_function = scan.function(ref.table_name, scan.data);
+			auto replacement_function = scan.function(context, table_name, scan.data.get());
 			if (replacement_function) {
 				replacement_function->alias = ref.alias.empty() ? ref.table_name : ref.alias;
 				replacement_function->column_name_alias = ref.column_name_alias;
@@ -79,11 +80,11 @@ unique_ptr<BoundTableRef> Binder::Bind(BaseTableRef &ref) {
 		// we still didn't find the table
 		if (GetBindingMode() == BindingMode::EXTRACT_NAMES) {
 			// if we are in EXTRACT_NAMES, we create a dummy table ref
-			AddTableName(ref.table_name);
+			AddTableName(table_name);
 
 			// add a bind context entry
 			auto table_index = GenerateTableIndex();
-			auto alias = ref.alias.empty() ? ref.table_name : ref.alias;
+			auto alias = ref.alias.empty() ? table_name : ref.alias;
 			vector<LogicalType> types {LogicalType::INTEGER};
 			vector<string> names {"__dummy_col" + to_string(table_index)};
 			bind_context.AddGenericBinding(table_index, alias, names, types);
@@ -129,7 +130,9 @@ unique_ptr<BoundTableRef> Binder::Bind(BaseTableRef &ref) {
 		subquery.column_name_alias =
 		    BindContext::AliasColumnNames(subquery.alias, view_catalog_entry->aliases, ref.column_name_alias);
 		// bind the child subquery
+		view_binder->AddBoundView(view_catalog_entry);
 		auto bound_child = view_binder->Bind(subquery);
+
 		D_ASSERT(bound_child->type == TableReferenceType::SUBQUERY);
 		// verify that the types and names match up with the expected types and names
 		auto &bound_subquery = (BoundSubqueryRef &)*bound_child;
