@@ -48,6 +48,7 @@ void RowOperations::DestroyStates(RowLayout &layout, Vector &addresses, idx_t co
 
 void RowOperations::UpdateStates(AggregateObject &aggr, Vector &addresses, DataChunk &payload, idx_t arg_idx,
                                  idx_t count) {
+                                        // 注意这里面传进去的是payload.data的指针哦！
 	aggr.function.update(aggr.child_count == 0 ? nullptr : &payload.data[arg_idx], aggr.bind_data, aggr.child_count,
 	                     addresses, count);
 }

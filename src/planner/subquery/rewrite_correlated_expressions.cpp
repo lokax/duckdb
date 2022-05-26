@@ -7,6 +7,8 @@
 #include "duckdb/planner/expression/bound_subquery_expression.hpp"
 #include "duckdb/planner/expression_iterator.hpp"
 
+#include <iostream>
+
 namespace duckdb {
 
 RewriteCorrelatedExpressions::RewriteCorrelatedExpressions(ColumnBinding base_binding,
@@ -20,17 +22,21 @@ void RewriteCorrelatedExpressions::VisitOperator(LogicalOperator &op) {
 
 unique_ptr<Expression> RewriteCorrelatedExpressions::VisitReplace(BoundColumnRefExpression &expr,
                                                                   unique_ptr<Expression> *expr_ptr) {
-	if (expr.depth == 0) {
+	if (expr.depth == 0) { // depth是0，说明不是相关列
 		return nullptr;
 	}
 	// correlated column reference
 	// replace with the entry referring to the duplicate eliminated scan
 	// if this assertion occurs it generally means the correlated expressions were not propagated correctly
 	// through different binders
-	D_ASSERT(expr.depth == 1);
+	D_ASSERT(expr.depth == 1); // 为什么一定是1呢?
 	auto entry = correlated_map.find(expr.binding);
 	D_ASSERT(entry != correlated_map.end());
-
+    std::cout << "Expr Name is " << expr.GetName() << std::endl;
+	std::cout << "之前的binding为table index = " << expr.binding.table_index << ", " << expr.binding.column_index
+	          << std::endl;
+	std::cout << "base_bind table inedx = " << base_binding.table_index << ", " << base_binding.column_index
+	          << ", " << entry->second << std::endl;
 	expr.binding = ColumnBinding(base_binding.table_index, base_binding.column_index + entry->second);
 	expr.depth = 0;
 	return nullptr;
@@ -38,7 +44,7 @@ unique_ptr<Expression> RewriteCorrelatedExpressions::VisitReplace(BoundColumnRef
 
 unique_ptr<Expression> RewriteCorrelatedExpressions::VisitReplace(BoundSubqueryExpression &expr,
                                                                   unique_ptr<Expression> *expr_ptr) {
-	if (!expr.IsCorrelated()) {
+	if (!expr.IsCorrelated()) { // 该子查询表达式不是关联的，则直接返回
 		return nullptr;
 	}
 	// subquery detected within this subquery
@@ -56,7 +62,7 @@ RewriteCorrelatedExpressions::RewriteCorrelatedRecursive::RewriteCorrelatedRecur
 void RewriteCorrelatedExpressions::RewriteCorrelatedRecursive::RewriteCorrelatedSubquery(
     BoundSubqueryExpression &expr) {
 	// rewrite the binding in the correlated list of the subquery)
-	for (auto &corr : expr.binder->correlated_columns) {
+	for (auto &corr : expr.binder->correlated_columns) { // sub_binder
 		auto entry = correlated_map.find(corr.binding);
 		if (entry != correlated_map.end()) {
 			corr.binding = ColumnBinding(base_binding.table_index, base_binding.column_index + entry->second);
@@ -71,7 +77,7 @@ void RewriteCorrelatedExpressions::RewriteCorrelatedRecursive::RewriteCorrelated
 	if (child.type == ExpressionType::BOUND_COLUMN_REF) {
 		// bound column reference
 		auto &bound_colref = (BoundColumnRefExpression &)child;
-		if (bound_colref.depth == 0) {
+		if (bound_colref.depth == 0) { // 不是关联列表达式，直接忽略掉
 			// not a correlated column, ignore
 			return;
 		}
@@ -82,6 +88,7 @@ void RewriteCorrelatedExpressions::RewriteCorrelatedRecursive::RewriteCorrelated
 			// we found the column in the correlated map!
 			// update the binding and reduce the depth by 1
 			bound_colref.binding = ColumnBinding(base_binding.table_index, base_binding.column_index + entry->second);
+			std::cout << "减少depth之前" << bound_colref.depth << std::endl;
 			bound_colref.depth--;
 		}
 	} else if (child.type == ExpressionType::SUBQUERY) {

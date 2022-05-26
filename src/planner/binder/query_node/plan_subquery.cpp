@@ -11,6 +11,7 @@
 #include "duckdb/planner/operator/list.hpp"
 #include "duckdb/planner/subquery/flatten_dependent_join.hpp"
 #include "duckdb/function/aggregate/distributive_functions.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -161,6 +162,7 @@ static unique_ptr<Expression> PlanCorrelatedSubquery(Binder &binder, BoundSubque
                                                      unique_ptr<LogicalOperator> &root,
                                                      unique_ptr<LogicalOperator> plan) {
 	auto &correlated_columns = expr.binder->correlated_columns;
+    std::cout << correlated_columns.size() << std::endl;
 	D_ASSERT(expr.IsCorrelated());
 	// correlated subquery
 	// for a more in-depth explanation of this code, read the paper "Unnesting Arbitrary Subqueries"
@@ -178,6 +180,10 @@ static unique_ptr<Expression> PlanCorrelatedSubquery(Binder &binder, BoundSubque
 		// and e.g. in the query: SELECT (SELECT 42 FROM integers WHERE i1.i IS NULL LIMIT 1) FROM integers i1;
 		// the input value NULL will generate the value 42, and we need to join NULL on the LHS with NULL on the RHS
 		auto delim_join = CreateDuplicateEliminatedJoin(correlated_columns, JoinType::SINGLE);
+        // 为什么没有关联的时候直接笛卡尔积呢？这样不就出现了NULL值消失的情况了嘛？
+        // 原因在于：
+        // SINGLE JOIN拿外部查询数据(CHUCK_SCAN是没有去重，DELIM_SCAN是去重)和内部查询做连接，并且当匹配不到时会保留NULL值在右边
+        // 同时SIGLE JOIN会使得只匹配一条数据(给标量子查询使用)
 
 		// the left side is the original plan
 		// this is the side that will be duplicate eliminated and pushed into the RHS
@@ -302,7 +308,7 @@ unique_ptr<Expression> Binder::PlanSubquery(BoundSubqueryExpression &expr, uniqu
 	D_ASSERT(subquery_root);
 
 	// now we actually flatten the subquery
-	auto plan = move(subquery_root);
+	auto plan = move(subquery_root); // 子查询的计划
 	unique_ptr<Expression> result_expression;
 	if (!expr.IsCorrelated()) {
 		result_expression = PlanUncorrelatedSubquery(*this, expr, root, move(plan));

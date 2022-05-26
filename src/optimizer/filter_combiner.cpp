@@ -17,6 +17,7 @@
 
 #include "duckdb/common/operator/cast_operators.hpp"
 #include "duckdb/planner/filter/conjunction_filter.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -57,13 +58,13 @@ FilterResult FilterCombiner::AddConstantComparison(vector<ExpressionValueInforma
                                                    ExpressionValueInformation info) {
 	for (idx_t i = 0; i < info_list.size(); i++) {
 		auto comparison = CompareValueInformation(info_list[i], info);
-		switch (comparison) {
+		switch (comparison) { // 和list中的每一个expr比较以下，看是否能够剪枝
 		case ValueComparisonResult::PRUNE_LEFT:
 			// prune the entry from the info list
-			info_list.erase(info_list.begin() + i);
+			info_list.erase(info_list.begin() + i); // 把左边的修剪掉
 			i--;
 			break;
-		case ValueComparisonResult::PRUNE_RIGHT:
+		case ValueComparisonResult::PRUNE_RIGHT: // 修剪右边的，可以直接返回
 			// prune the current info
 			return FilterResult::SUCCESS;
 		case ValueComparisonResult::UNSATISFIABLE_CONDITION:
@@ -75,7 +76,7 @@ FilterResult FilterCombiner::AddConstantComparison(vector<ExpressionValueInforma
 		}
 	}
 	// finally add the entry to the list
-	info_list.push_back(info);
+	info_list.push_back(info); // PUSH进右边的INFO
 	return FilterResult::SUCCESS;
 }
 
@@ -123,6 +124,7 @@ void FilterCombiner::GenerateFilters(const std::function<void(unique_ptr<Express
 					upper_index = k;
 					upper_inclusive = info.comparison_type == ExpressionType::COMPARE_LESSTHANOREQUALTO;
 				} else {
+                    // 这里是等值表达式嘛？
 					auto constant = make_unique<BoundConstantExpression>(info.constant);
 					auto comparison = make_unique<BoundComparisonExpression>(info.comparison_type, entries[i]->Copy(),
 					                                                         move(constant));
@@ -576,12 +578,12 @@ FilterResult FilterCombiner::AddBoundComparisonFilter(Expression *expr) {
 	// check if one of the sides is a scalar value
 	bool left_is_scalar = comparison.left->IsFoldable();
 	bool right_is_scalar = comparison.right->IsFoldable();
-	if (left_is_scalar || right_is_scalar) {
+	if (left_is_scalar || right_is_scalar) { // 如果左边或者右边有一个表达式是SCALAR
 		// comparison with scalar
 		auto node = GetNode(left_is_scalar ? comparison.right.get() : comparison.left.get());
 		idx_t equivalence_set = GetEquivalenceSet(node);
 		auto scalar = left_is_scalar ? comparison.left.get() : comparison.right.get();
-		auto constant_value = ExpressionExecutor::EvaluateScalar(*scalar);
+		auto constant_value = ExpressionExecutor::EvaluateScalar(*scalar); // 计算结果是什么
 		if (constant_value.IsNull()) {
 			// comparisons with null are always null (i.e. will never result in rows)
 			return FilterResult::UNSATISFIABLE;
@@ -602,7 +604,7 @@ FilterResult FilterCombiner::AddBoundComparisonFilter(Expression *expr) {
 		auto transitive_filter = FindTransitiveFilter(non_scalar);
 		if (transitive_filter != nullptr) {
 			// try to add transitive filters
-			if (AddTransitiveFilters((BoundComparisonExpression &)*transitive_filter) == FilterResult::UNSUPPORTED) {
+			if (AddTransitiveFilters((BoundComparisonExpression &)*transitive_filter) == FilterResult::UNSUPPORTED) { // 为什么不判断一下不满足的情况，直接做剪枝？
 				// in case of unsuccessful re-add filter into remaining ones
 				remaining_filters.push_back(move(transitive_filter));
 			}
@@ -620,7 +622,7 @@ FilterResult FilterCombiner::AddBoundComparisonFilter(Expression *expr) {
 		// get the LHS and RHS nodes
 		auto left_node = GetNode(comparison.left.get());
 		auto right_node = GetNode(comparison.right.get());
-		if (BaseExpression::Equals(left_node, right_node)) {
+		if (BaseExpression::Equals(left_node, right_node)) { // 两个相等表达式，返回UNSUPPORTED，添加到remain_filter，可能是因为null == null不一定是对的原因把？
 			return FilterResult::UNSUPPORTED;
 		}
 		// get the equivalence sets of the LHS and RHS
@@ -647,9 +649,9 @@ FilterResult FilterCombiner::AddBoundComparisonFilter(Expression *expr) {
 		D_ASSERT(constant_values.find(right_equivalence_set) != constant_values.end());
 		auto &left_constant_bucket = constant_values.find(left_equivalence_set)->second;
 		auto &right_constant_bucket = constant_values.find(right_equivalence_set)->second;
-		for (auto &i : right_constant_bucket) {
+		for (auto &i : right_constant_bucket) { // 把右边的常量值添加到右边去
 			if (AddConstantComparison(left_constant_bucket, i) == FilterResult::UNSATISFIABLE) {
-				return FilterResult::UNSATISFIABLE;
+				return FilterResult::UNSATISFIABLE; // 直接全部剪没
 			}
 		}
 	}
@@ -817,6 +819,7 @@ FilterResult FilterCombiner::AddTransitiveFilters(BoundComparisonExpression &com
 		is_successful = true;
 	}
 	if (is_successful) {
+        // 继续递归去做传递
 		// now check for remaining trasitive filters from the left column
 		auto transitive_filter = FindTransitiveFilter(comparison.left.get());
 		if (transitive_filter != nullptr) {
@@ -892,7 +895,7 @@ ValueComparisonResult CompareValueInformation(ExpressionValueInformation &left, 
 			break;
 		}
 		if (prune_right_side) {
-			return ValueComparisonResult::PRUNE_RIGHT;
+			return ValueComparisonResult::PRUNE_RIGHT; // 把右边修剪掉
 		} else {
 			return ValueComparisonResult::UNSATISFIABLE_CONDITION;
 		}
@@ -1023,15 +1026,17 @@ void FilterCombiner::LookUpConjunctions(Expression *expr) {
 
 bool FilterCombiner::BFSLookUpConjunctions(BoundConjunctionExpression *conjunction) {
 	vector<BoundConjunctionExpression *> conjunctions_to_visit;
-
+    std::cout << "BFS start" << std::endl;
 	for (auto &child : conjunction->children) {
 		switch (child->GetExpressionClass()) {
-		case ExpressionClass::BOUND_CONJUNCTION: {
+		case ExpressionClass::BOUND_CONJUNCTION: { 
 			auto child_conjunction = (BoundConjunctionExpression *)child.get();
+            std::cout << "child_conjunction: " << child_conjunction->ToString() << std::endl;
 			conjunctions_to_visit.emplace_back(child_conjunction);
 			break;
 		}
 		case ExpressionClass::BOUND_COMPARISON: {
+            std::cout << "BOUND COM: " << child->ToString() << std::endl;
 			if (!UpdateConjunctionFilter((BoundComparisonExpression *)child.get())) {
 				return false;
 			}
@@ -1085,9 +1090,10 @@ bool FilterCombiner::UpdateConjunctionFilter(BoundComparisonExpression *comparis
 bool FilterCombiner::UpdateFilterByColumn(BoundColumnRefExpression *column_ref,
                                           BoundComparisonExpression *comparison_expr) {
 	if (cur_colref_to_push == nullptr) {
+        std::cout << "??????" << std::endl;
 		cur_colref_to_push = column_ref;
 
-		auto or_conjunction = make_unique<BoundConjunctionExpression>(ExpressionType::CONJUNCTION_OR);
+		auto or_conjunction = make_unique<BoundConjunctionExpression>(ExpressionType::CONJUNCTION_OR); // 创建OR表达式
 		or_conjunction->children.emplace_back(comparison_expr->Copy());
 
 		unique_ptr<ConjunctionsToPush> conjs_to_push = make_unique<ConjunctionsToPush>();
@@ -1107,18 +1113,21 @@ bool FilterCombiner::UpdateFilterByColumn(BoundColumnRefExpression *column_ref,
 	if (!cur_colref_to_push->Equals(column_ref)) {
 		// check for multiple colunms in the same root OR node
 		if (cur_root_or == cur_conjunction) {
+            std::cout << cur_root_or->ToString() << std::endl;
+            std::cout << "cur_root_or == cur_conjunction" << std::endl;
 			return false;
 		}
 		// found an AND using a different column, we should stop the look up
 		if (cur_conjunction->GetExpressionType() == ExpressionType::CONJUNCTION_AND) {
+            std::cout << "AND--> return false" << std::endl;
 			return false;
 		}
-
+        std::cout << "fuck u" << std::endl;
 		// found a different column, AND conditions cannot be preserved anymore
 		conjunctions_to_push->preserve_and = false;
 		return true;
 	}
-
+    std::cout << "列相同" << std::endl;
 	auto &last_conjunction = conjunctions_to_push->conjunctions.back();
 	if (cur_conjunction->GetExpressionType() == last_conjunction->GetExpressionType()) {
 		last_conjunction->children.emplace_back(comparison_expr->Copy());

@@ -669,7 +669,7 @@ bool LogicalType::GetDecimalProperties(uint8_t &width, uint8_t &scale) const {
 		width = 20;
 		scale = 0;
 		break;
-	case LogicalTypeId::HUGEINT:
+	case LogicalTypeId::HUGEINT: // 128位十进制数值有39位，而我们的decimal内部实现其实是由hugint来存的，因此只能存38位，所以hugint的数值不一定能存得下。
 		// hugeint: max size decimal (38, 0)
 		// note that a hugeint is not guaranteed to fit in this
 		width = 38;

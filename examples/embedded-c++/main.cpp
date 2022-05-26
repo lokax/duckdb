@@ -10,14 +10,9 @@ int main() {
 	con.Query("CREATE TABLE src (a INTEGER, b INTEGER)");
 	con.Query("INSERT INTO src VALUES (1, 1)");
 	con.Query("INSERT INTO src VALUES (2, 2)");
-	// con.Query("INSERT INTO src VALUES (3, 3)");
+	con.Query("INSERT INTO src VALUES (3, 3)");
 
-    con.Query("CREATE TABLE test (c INTEGER, d INTEGER)");
-	con.Query("INSERT INTO test VALUES (1, 1)");
-	// con.Query("INSERT INTO test VALUES (2, 2)");
-	con.Query("INSERT INTO test VALUES (3, 3)");
-
-    auto result = con.Query("SELECT * FROM src LEFT JOIN test ON test.c == src.a;");
+    auto result = con.Query("SELECT * FROM src WHERE src.a = 2 OR src.a = 3;");
     result->Print();
 
 	// auto result = con.Query("SELECT a FROM src WHERE a IN (1, 2, 5, 9)");

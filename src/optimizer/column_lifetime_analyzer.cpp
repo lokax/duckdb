@@ -121,6 +121,7 @@ void ColumnLifetimeAnalyzer::VisitOperator(LogicalOperator &op) {
 		}
 		// filter, figure out which columns are not needed after the filter
 		column_binding_set_t unused_bindings;
+        // 因为是自顶向下的一个递归
 		ExtractUnusedColumnBindings(op.children[0]->GetColumnBindings(), unused_bindings);
 
 		// now recurse into the filter and its children

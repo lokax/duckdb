@@ -252,15 +252,15 @@ void GroupedAggregateHashTable::Resize(idx_t size) {
 
 idx_t GroupedAggregateHashTable::AddChunk(DataChunk &groups, DataChunk &payload) {
 	Vector hashes(LogicalType::HASH);
-	groups.Hash(hashes);
-
+	groups.Hash(hashes); // 对分组列做哈希
+  
 	return AddChunk(groups, hashes, payload);
 }
 
 idx_t GroupedAggregateHashTable::AddChunk(DataChunk &groups, Vector &group_hashes, DataChunk &payload) {
 	D_ASSERT(!is_finalized);
 
-	if (groups.size() == 0) {
+	if (groups.size() == 0) { // 如果没有数据
 		return 0;
 	}
 	// dummy
@@ -333,6 +333,7 @@ idx_t GroupedAggregateHashTable::AddChunk(DataChunk &groups, Vector &group_hashe
 			RowOperations::UpdateFilteredStates(aggr, addresses, payload, payload_idx);
 		} else {
 			RowOperations::UpdateStates(aggr, addresses, payload, payload_idx, payload.size());
+            // 更新数据
 		}
 
 		// move to the next aggregate

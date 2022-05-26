@@ -10,6 +10,7 @@
 #include "duckdb/planner/expression/bound_aggregate_expression.hpp"
 #include "duckdb/catalog/catalog_entry/aggregate_function_catalog_entry.hpp"
 #include "duckdb/function/aggregate/distributive_functions.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -81,7 +82,7 @@ unique_ptr<LogicalOperator> FlattenDependentJoins::PushDownDependentJoinInternal
 		// now create the duplicate eliminated scan for this node
 		auto delim_index = binder.GenerateTableIndex();
 		this->base_binding = ColumnBinding(delim_index, 0);
-		auto delim_scan = make_unique<LogicalDelimGet>(delim_index, delim_types);
+		auto delim_scan = make_unique<LogicalDelimGet>(delim_index, delim_types); // 去重扫描
 		cross_product->children.push_back(move(delim_scan));
 		cross_product->children.push_back(move(plan));
 		return move(cross_product);
@@ -145,6 +146,23 @@ unique_ptr<LogicalOperator> FlattenDependentJoins::PushDownDependentJoinInternal
 			}
 			aggr.groups.push_back(move(colref));
 		}
+
+        // 由于上面对groups添加了一些组，而本来是没有组的，没有组的话，整个数据为一组，比较特俗。
+        // SELECT i, sum(i) from integers where i > 4 GROUP BY i;
+        /*
+            D SELECT i, sum(i) from integers where i > 4 GROUP BY i;
+                    D SELECT sum(i) from integers where i > 4;
+                    ┌────────┐
+                    │ sum(i) │
+                    ├────────┤
+                    │        │
+                    └────────┘
+        */
+       // 可以看到不特意分组的话，最后哪怕没有一条数据也会做一下聚合计算
+       // 而在上面的操作中，我们把没有组的数据变成了有组的数据，因此就需要额外的操作去保证能够传递出
+       // null值
+       // 所以需要下面的操作来传递空值
+
 		if (aggr.groups.size() == correlated_columns.size()) {
 			// we have to perform a LEFT OUTER JOIN between the result of this aggregate and the delim scan
 			// FIXME: this does not always have to be a LEFT OUTER JOIN, depending on whether aggr.expressions return
@@ -153,10 +171,17 @@ unique_ptr<LogicalOperator> FlattenDependentJoins::PushDownDependentJoinInternal
 			for (auto &aggr_exp : aggr.expressions) {
 				auto b_aggr_exp = (BoundAggregateExpression *)aggr_exp.get();
 				if (!b_aggr_exp->PropagatesNullValues() || any_join || !parent_propagate_null_values) {
+                    std::cout << "LEFT JOIN!!!" << std::endl;
 					join = make_unique<LogicalComparisonJoin>(JoinType::LEFT);
 					break;
 				}
 			}
+            std::cout << "FUCK" << std::endl;
+            // 为什么这里需要加Join呢（不论是LEFT还是INNER）
+            // 我认为
+            // 如果一开始分组的话，分组数据是由下层传递上来的。没什么问题
+            // 但是一开始没分组，那么经过笛卡尔积的操作后，会导致一部分外部查询的数据没有了(这些外部查询数据传进子查询后结果为empty set)。
+            // 所以这里面用Join来恢复NULL数据
 			auto left_index = binder.GenerateTableIndex();
 			auto delim_scan = make_unique<LogicalDelimGet>(left_index, delim_types);
 			join->children.push_back(move(delim_scan));

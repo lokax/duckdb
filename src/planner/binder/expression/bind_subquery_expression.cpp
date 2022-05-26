@@ -4,6 +4,7 @@
 #include "duckdb/planner/expression/bound_subquery_expression.hpp"
 #include "duckdb/planner/expression_binder.hpp"
 #include "duckdb/common/string_util.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -35,9 +36,9 @@ BindResult ExpressionBinder::BindExpression(SubqueryExpression &expr, idx_t dept
 	if (expr.subquery->node->type != QueryNodeType::BOUND_SUBQUERY_NODE) {
 		D_ASSERT(depth == 0);
 		// first bind the actual subquery in a new binder
-		auto subquery_binder = Binder::CreateBinder(context, &binder);
-		subquery_binder->can_contain_nulls = true;
-		auto bound_node = subquery_binder->BindNode(*expr.subquery->node);
+		auto subquery_binder = Binder::CreateBinder(context, &binder); // 创建子查询的binder
+		subquery_binder->can_contain_nulls = true; // 这个什么意思呢
+		auto bound_node = subquery_binder->BindNode(*expr.subquery->node); // 绑定子查询
 		// check the correlated columns of the subquery for correlated columns with depth > 1
 		for (idx_t i = 0; i < subquery_binder->correlated_columns.size(); i++) {
 			CorrelatedColumnInfo corr = subquery_binder->correlated_columns[i];
@@ -45,9 +46,11 @@ BindResult ExpressionBinder::BindExpression(SubqueryExpression &expr, idx_t dept
 				// depth > 1, the column references the query ABOVE the current one
 				// add to the set of correlated columns for THIS query
 				corr.depth -= 1;
-				binder.AddCorrelatedColumn(corr);
+				binder.AddCorrelatedColumn(corr); // 递归回来的时候，每一层都加相关列的信息嘛？
+                std::cout << "相关列深度大于1" << std::endl;
 			}
 		}
+        // 除了EXIST以外的子查询，应该只返回一个列
 		if (expr.subquery_type != SubqueryType::EXISTS && bound_node->types.size() > 1) {
 			throw BinderException(binder.FormatError(
 			    expr, StringUtil::Format("Subquery returns %zu columns - expected 1", bound_node->types.size())));
@@ -58,9 +61,9 @@ BindResult ExpressionBinder::BindExpression(SubqueryExpression &expr, idx_t dept
 		    make_unique<BoundSubqueryNode>(move(subquery_binder), move(bound_node), move(prior_subquery));
 	}
 	// now bind the child node of the subquery
-	if (expr.child) {
+	if (expr.child) { // 如果是ANY之类的，就会有这个child expression
 		// first bind the children of the subquery, if any
-		string error = Bind(&expr.child, depth);
+		string error = Bind(&expr.child, depth); // 绑定这个expression
 		if (!error.empty()) {
 			return BindResult(error);
 		}
@@ -85,7 +88,7 @@ BindResult ExpressionBinder::BindExpression(SubqueryExpression &expr, idx_t dept
 		result->child_type = bound_node->types[0];
 		result->child_target = compare_type;
 	}
-	result->binder = move(subquery_binder);
+	result->binder = move(subquery_binder); // 绑定这个子查询的binder
 	result->subquery = move(bound_node);
 	result->subquery_type = expr.subquery_type;
 	result->child = child ? move(child->expr) : nullptr;

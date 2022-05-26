@@ -8,8 +8,8 @@ namespace duckdb {
 RadixPartitionedHashTable::RadixPartitionedHashTable(GroupingSet &grouping_set_p, const PhysicalHashAggregate &op_p)
     : grouping_set(grouping_set_p), op(op_p) {
 
-	for (idx_t i = 0; i < op.groups.size(); i++) {
-		if (grouping_set.find(i) == grouping_set.end()) {
+	for (idx_t i = 0; i < op.groups.size(); i++) { // 遍历op的分组列
+		if (grouping_set.find(i) == grouping_set.end()) { // 如果在grouping_set中没有找到，说明是null group?
 			null_groups.push_back(i);
 		}
 	}
@@ -57,7 +57,7 @@ public:
 	//! Whether or not any tuples were added to the HT
 	bool is_empty;
 	//! Whether or not the hash table should be scannable multiple times
-	bool multi_scan;
+	bool multi_scan; // 是否哈希表会被扫描多次
 	//! The lock for updating the global aggregate state
 	mutex lock;
 	//! a counter to determine if we should switch over to p
@@ -74,7 +74,7 @@ public:
 	explicit RadixHTLocalState(const RadixPartitionedHashTable &ht) : is_empty(true) {
 		// if there are no groups we create a fake group so everything has the same group
 		group_chunk.InitializeEmpty(ht.group_types);
-		if (ht.grouping_set.empty()) {
+		if (ht.grouping_set.empty()) { // 没有分组集合
 			group_chunk.data[0].Reference(Value::TINYINT(42));
 		}
 	}
@@ -100,21 +100,23 @@ unique_ptr<LocalSinkState> RadixPartitionedHashTable::GetLocalSinkState(Executio
 	return make_unique<RadixHTLocalState>(*this);
 }
 
+// 本地的加
 void RadixPartitionedHashTable::Sink(ExecutionContext &context, GlobalSinkState &state, LocalSinkState &lstate,
                                      DataChunk &input, DataChunk &aggregate_input_chunk) const {
 	auto &llstate = (RadixHTLocalState &)lstate;
 	auto &gstate = (RadixHTGlobalState &)state;
 	D_ASSERT(!gstate.is_finalized);
 
-	DataChunk &group_chunk = llstate.group_chunk;
+	DataChunk &group_chunk = llstate.group_chunk; // 分组列数据chunk
 	idx_t chunk_index = 0;
 	for (auto &group_idx : grouping_set) {
 		auto &group = op.groups[group_idx];
 		D_ASSERT(group->type == ExpressionType::BOUND_REF);
 		auto &bound_ref_expr = (BoundReferenceExpression &)*group;
+        // 直接引用就行
 		group_chunk.data[chunk_index++].Reference(input.data[bound_ref_expr.index]);
 	}
-	group_chunk.SetCardinality(input.size());
+	group_chunk.SetCardinality(input.size()); // 设置个数
 	group_chunk.Verify();
 
 	// if we have non-combinable aggregates (e.g. string_agg) or any distinct aggregates we cannot keep parallel hash
@@ -140,7 +142,7 @@ void RadixPartitionedHashTable::Sink(ExecutionContext &context, GlobalSinkState 
 		llstate.is_empty = false;
 	}
 
-	if (!llstate.ht) {
+	if (!llstate.ht) { // 惰性分配
 		llstate.ht =
 		    make_unique<PartitionableHashTable>(BufferManager::GetBufferManager(context.client), gstate.partition_info,
 		                                        group_types, op.payload_types, op.bindings);
@@ -151,6 +153,7 @@ void RadixPartitionedHashTable::Sink(ExecutionContext &context, GlobalSinkState 
 	                         gstate.total_groups > radix_limit && gstate.partition_info.n_partitions > 1);
 }
 
+// 将本地合并到全局, Combiine是pipelineExecutor调用PushFinialize完成的
 void RadixPartitionedHashTable::Combine(ExecutionContext &context, GlobalSinkState &state,
                                         LocalSinkState &lstate) const {
 	auto &llstate = (RadixHTLocalState &)lstate;
@@ -173,7 +176,7 @@ void RadixPartitionedHashTable::Combine(ExecutionContext &context, GlobalSinkSta
 		llstate.ht->Partition();
 	}
 
-	lock_guard<mutex> glock(gstate.lock);
+	lock_guard<mutex> glock(gstate.lock); // 加锁，做很少的事情，加锁开销不大
 	D_ASSERT(op.all_combinable);
 	D_ASSERT(!op.any_distinct);
 
@@ -182,10 +185,10 @@ void RadixPartitionedHashTable::Combine(ExecutionContext &context, GlobalSinkSta
 	}
 
 	// we will never add new values to these HTs so we can drop the first part of the HT
-	llstate.ht->Finalize();
+	llstate.ht->Finalize(); // 2 part的哈希表，第一部分可以不要了
 
 	// at this point we just collect them the PhysicalHashAggregateFinalizeTask (below) will merge them in parallel
-	gstate.intermediate_hts.push_back(move(llstate.ht));
+	gstate.intermediate_hts.push_back(move(llstate.ht)); // 只是将哈希
 }
 
 bool RadixPartitionedHashTable::Finalize(ClientContext &context, GlobalSinkState &gstate_p) const {
@@ -313,7 +316,7 @@ public:
 		for (auto &aggr_type : ht.op.aggregate_return_types) {
 			scan_chunk_types.push_back(aggr_type);
 		}
-		scan_chunk.Initialize(scan_chunk_types);
+		scan_chunk.Initialize(scan_chunk_types); // 初始化一下scan_chunk
 	}
 
 	//! Materialized GROUP BY expressions & aggregates
@@ -337,7 +340,7 @@ void RadixPartitionedHashTable::GetData(ExecutionContext &context, DataChunk &ch
 		return;
 	}
 
-	state.scan_chunk.Reset();
+	state.scan_chunk.Reset(); // 存放group by expression和aggregate
 	// special case hack to sort out aggregating from empty intermediates
 	// for aggregations without groups
 	if (gstate.is_empty && grouping_set.empty()) {
@@ -364,13 +367,13 @@ void RadixPartitionedHashTable::GetData(ExecutionContext &context, DataChunk &ch
 		return;
 	}
 	if (gstate.is_empty && !state.finished) {
-		state.finished = true;
+		state.finished = true; // 没有数据
 		return;
 	}
 	idx_t elements_found = 0;
 
 	while (true) {
-		if (state.ht_index == gstate.finalized_hts.size()) {
+		if (state.ht_index == gstate.finalized_hts.size()) { // 最后一个ht扫描完成，finished!
 			state.finished = true;
 			return;
 		}
@@ -381,14 +384,14 @@ void RadixPartitionedHashTable::GetData(ExecutionContext &context, DataChunk &ch
 			break;
 		}
 		if (!gstate.multi_scan) {
-			gstate.finalized_hts[state.ht_index].reset();
+			gstate.finalized_hts[state.ht_index].reset(); // 不需要扫描多次，将ptr设置成null
 		}
 		state.ht_index++;
 		state.ht_scan_position = 0;
 	}
 
 	// compute the final projection list
-	chunk.SetCardinality(elements_found);
+	chunk.SetCardinality(elements_found); // 设置个数
 
 	idx_t chunk_index = 0;
 	for (auto &entry : grouping_set) {

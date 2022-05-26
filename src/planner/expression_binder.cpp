@@ -70,17 +70,18 @@ BindResult ExpressionBinder::BindExpression(unique_ptr<ParsedExpression> *expr, 
 	}
 }
 
+// 绑定关联列
 bool ExpressionBinder::BindCorrelatedColumns(unique_ptr<ParsedExpression> &expr) {
 	// try to bind in one of the outer queries, if the binding error occurred in a subquery
 	auto &active_binders = binder.GetActiveBinders();
 	// make a copy of the set of binders, so we can restore it later
 	auto binders = active_binders;
-	active_binders.pop_back();
-	idx_t depth = 1;
-	bool success = false;
-	while (!active_binders.empty()) {
+	active_binders.pop_back(); // 弹掉当前的ExpressionBinder(自己)
+	idx_t depth = 1; // 自己depth为0
+	bool success = false; 
+	while (!active_binders.empty()) { // 只要还存在ExpressionBinder
 		auto &next_binder = active_binders.back();
-		ExpressionBinder::QualifyColumnNames(next_binder->binder, expr);
+		ExpressionBinder::QualifyColumnNames(next_binder->binder, expr); // 获取qualify name
 		auto bind_result = next_binder->Bind(&expr, depth);
 		if (bind_result.empty()) {
 			success = true;
@@ -89,7 +90,7 @@ bool ExpressionBinder::BindCorrelatedColumns(unique_ptr<ParsedExpression> &expr)
 		depth++;
 		active_binders.pop_back();
 	}
-	active_binders = binders;
+	active_binders = binders; // 恢复binder
 	return success;
 }
 
@@ -102,6 +103,7 @@ void ExpressionBinder::BindChild(unique_ptr<ParsedExpression> &expr, idx_t depth
 	}
 }
 
+// 提取相关列的信息，并保存到binder中
 void ExpressionBinder::ExtractCorrelatedExpressions(Binder &binder, Expression &expr) {
 	if (expr.type == ExpressionType::BOUND_COLUMN_REF) {
 		auto &bound_colref = (BoundColumnRefExpression &)expr;
@@ -156,24 +158,30 @@ LogicalType ExpressionBinder::ExchangeType(const LogicalType &type, LogicalTypeI
 		return type;
 	}
 }
-
+// 返回是否包含SQLNULL类型
 bool ExpressionBinder::ContainsNullType(const LogicalType &type) {
 	return ContainsType(type, LogicalTypeId::SQLNULL);
 }
 
+// 把SQLNULL类型转换成整数类型
 LogicalType ExpressionBinder::ExchangeNullType(const LogicalType &type) {
 	return ExchangeType(type, LogicalTypeId::SQLNULL, LogicalType::INTEGER);
 }
 
+// 类型是UNKNOWN则变成VARCHAR
 void ExpressionBinder::ResolveParameterType(LogicalType &type) {
 	if (type.id() == LogicalTypeId::UNKNOWN) {
 		type = LogicalType::VARCHAR;
 	}
 }
 
+// 解决参数类型
 void ExpressionBinder::ResolveParameterType(unique_ptr<Expression> &expr) {
+    // 如果表达式的返回类型中有UNKNOWN的类型(给参数表达式使用的类型)
 	if (ContainsType(expr->return_type, LogicalTypeId::UNKNOWN)) {
-		auto result_type = ExchangeType(expr->return_type, LogicalTypeId::UNKNOWN, LogicalType::VARCHAR);
+        // 为什么将类型变成VARCHAR？而不是其他的？
+        auto result_type = ExchangeType(expr->return_type, LogicalTypeId::UNKNOWN, LogicalType::VARCHAR);
+        // 添加Cast Expression做类型转换
 		expr = BoundCastExpression::AddCastToType(move(expr), result_type);
 	}
 }
@@ -182,33 +190,36 @@ unique_ptr<Expression> ExpressionBinder::Bind(unique_ptr<ParsedExpression> &expr
                                               bool root_expression) {
 	// bind the main expression
 	auto error_msg = Bind(&expr, 0, root_expression);
-	if (!error_msg.empty()) {
+	if (!error_msg.empty()) { // 绑定失败
 		// failed to bind: try to bind correlated columns in the expression (if any)
-		bool success = BindCorrelatedColumns(expr);
+		bool success = BindCorrelatedColumns(expr); // 绑定相关列
 		if (!success) {
-			throw BinderException(error_msg);
+			throw BinderException(error_msg); // 如果绑定相关列失败，就返回错误
 		}
 		auto bound_expr = (BoundExpression *)expr.get();
 		ExtractCorrelatedExpressions(binder, *bound_expr->expr);
 	}
 	D_ASSERT(expr->expression_class == ExpressionClass::BOUND_EXPRESSION);
-	auto bound_expr = (BoundExpression *)expr.get();
-	unique_ptr<Expression> result = move(bound_expr->expr);
+	auto bound_expr = (BoundExpression *)expr.get(); // 这是只是一个包装类而已
+	unique_ptr<Expression> result = move(bound_expr->expr); // 拿出实际的表达式
 	if (target_type.id() != LogicalTypeId::INVALID) {
 		// the binder has a specific target type: add a cast to that type
+        // 如果对表达式的返回类型有要求，则添加一个Cast Expression来做类型转换
 		result = BoundCastExpression::AddCastToType(move(result), target_type);
 	} else {
 		if (!binder.can_contain_nulls) {
 			// SQL NULL type is only used internally in the binder
 			// cast to INTEGER if we encounter it outside of the binder
 			if (ContainsNullType(result->return_type)) {
+                // 包含SQLNULL TYPE，则转换成整型
 				auto result_type = ExchangeNullType(result->return_type);
 				result = BoundCastExpression::AddCastToType(move(result), result_type);
 			}
 		}
 		// check if we failed to convert any parameters
 		// if we did, we push a cast
-		ExpressionBinder::ResolveParameterType(result);
+        // parameter expression是给prepare statement使用的
+		ExpressionBinder::ResolveParameterType(result); // 将UNKNOWN转成VARCHAR
 	}
 	if (result_type) {
 		*result_type = result->return_type;

@@ -43,7 +43,7 @@ public:
 					// Big strings not implemented for dictionary compression
 					return false;
 				}
-				new_string = !LookupString(data[idx]);
+				new_string = !LookupString(data[idx]); // 看是否为新字符串
 			}
 
 			bool fits = HasEnoughSpace(new_string, string_size);
@@ -207,12 +207,13 @@ struct DictionaryCompressionCompressState : public DictionaryCompressionState {
 	}
 
 	void AddNewString(string_t str) override {
+        // 更新统计数据
 		UncompressedStringStorage::UpdateStringStats(current_segment->stats, str);
 
 		// Copy string to dict
 		current_dictionary.size += str.GetSize();
 		auto dict_pos = current_end_ptr - current_dictionary.size;
-		memcpy(dict_pos, str.GetDataUnsafe(), str.GetSize());
+		memcpy(dict_pos, str.GetDataUnsafe(), str.GetSize()); // 拷贝字符串进去末尾
 		current_dictionary.Verify();
 		D_ASSERT(current_dictionary.end == Storage::BLOCK_SIZE);
 
@@ -223,7 +224,7 @@ struct DictionaryCompressionCompressState : public DictionaryCompressionState {
 		DictionaryCompressionStorage::SetDictionary(*current_segment, *current_handle, current_dictionary);
 
 		current_width = next_width;
-		current_segment->count++;
+		current_segment->count++; // 个数++
 	}
 
 	void AddNull() override {
@@ -332,16 +333,16 @@ struct DictionaryCompressionAnalyzeState : public AnalyzeState, DictionaryCompre
 	bitpacking_width_t current_width;
 	bitpacking_width_t next_width;
 
-	bool LookupString(string_t str) override {
+	bool LookupString(string_t str) override { // 通过哈希表查看字符串是否已经存在
 		return current_set.count(str);
 	}
 
 	void AddNewString(string_t str) override {
-		current_tuple_count++;
-		current_unique_count++;
-		current_dict_size += str.GetSize();
-		current_set.insert(str);
-		current_width = next_width;
+		current_tuple_count++; // 总tuple的数量
+		current_unique_count++; // 唯一的字符串数量
+		current_dict_size += str.GetSize(); // 大小
+		current_set.insert(str); // 插入哈希表
+		current_width = next_width; // ???
 	}
 
 	void AddLastLookup() override {
@@ -355,7 +356,8 @@ struct DictionaryCompressionAnalyzeState : public AnalyzeState, DictionaryCompre
 	bool HasEnoughSpace(bool new_string, size_t string_size) override {
 		if (new_string) {
 			next_width =
-			    BitpackingPrimitives::MinimumBitWidth(current_unique_count + 2); // 1 for null, one for new string
+			    BitpackingPrimitives::MinimumBitWidth(current_unique_count + 2); 
+                // 1 for null, one for new string
 			return DictionaryCompressionStorage::HasEnoughSpace(current_tuple_count + 1, current_unique_count + 1,
 			                                                    current_dict_size + string_size, next_width);
 		} else {
@@ -614,7 +616,7 @@ string_t DictionaryCompressionStorage::FetchStringFromDict(ColumnSegment &segmen
                                                            uint16_t string_len) {
 	D_ASSERT(dict_offset >= 0 && dict_offset <= Storage::BLOCK_SIZE);
 
-	if (dict_offset == 0) {
+	if (dict_offset == 0) { // NULL值
 		return string_t(nullptr, 0);
 	}
 	// normal string: read string from this block
@@ -646,6 +648,7 @@ CompressionFunction DictionaryCompressionFun::GetFunction(PhysicalType data_type
 	    DictionaryCompressionStorage::StringFetchRow, UncompressedFunctions::EmptySkip);
 }
 
+// 只支持VARCHAR
 bool DictionaryCompressionFun::TypeIsSupported(PhysicalType type) {
 	return type == PhysicalType::VARCHAR;
 }

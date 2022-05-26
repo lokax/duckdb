@@ -376,7 +376,7 @@ CompressionFunction RLEFun::GetFunction(PhysicalType type) {
 		throw InternalException("Unsupported type for RLE");
 	}
 }
-
+// 支持整数、浮点数、BOOL
 bool RLEFun::TypeIsSupported(PhysicalType type) {
 	switch (type) {
 	case PhysicalType::BOOL:

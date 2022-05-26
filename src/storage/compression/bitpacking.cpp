@@ -20,7 +20,7 @@ static constexpr const idx_t BITPACKING_WIDTH_GROUP_SIZE = 1024;
 
 struct EmptyBitpackingWriter {
 	template <class T>
-	static void Operation(T *values, bool *validity, bitpacking_width_t width, idx_t count, void *data_ptr) {
+	static void Operation(T *values, bool *validity, bitpacking_width_t width, idx_t count, void *data_ptr) { // 不做任何事情
 	}
 };
 
@@ -30,8 +30,8 @@ public:
 	BitpackingState() : compression_buffer_idx(0), total_size(0), data_ptr(nullptr) {
 	}
 
-	T compression_buffer[BITPACKING_WIDTH_GROUP_SIZE];
-	bool compression_buffer_validity[BITPACKING_WIDTH_GROUP_SIZE];
+	T compression_buffer[BITPACKING_WIDTH_GROUP_SIZE]; // 存实际的数据
+	bool compression_buffer_validity[BITPACKING_WIDTH_GROUP_SIZE]; // 表明是不是null
 	idx_t compression_buffer_idx;
 	idx_t total_size;
 	void *data_ptr;
@@ -48,8 +48,8 @@ public:
 	template <class OP = EmptyBitpackingWriter>
 	void Update(T *data, ValidityMask &validity, idx_t idx) {
 
-		if (validity.RowIsValid(idx)) {
-			compression_buffer_validity[compression_buffer_idx] = true;
+		if (validity.RowIsValid(idx)) { // 数据不是NULL值
+			compression_buffer_validity[compression_buffer_idx] = true; // 设置成true，表示不是NULL值
 			compression_buffer[compression_buffer_idx++] = data[idx];
 		} else {
 			// We write zero for easy bitwidth analysis of the compression buffer later
@@ -57,7 +57,7 @@ public:
 			compression_buffer[compression_buffer_idx++] = 0;
 		}
 
-		if (compression_buffer_idx == BITPACKING_WIDTH_GROUP_SIZE) {
+		if (compression_buffer_idx == BITPACKING_WIDTH_GROUP_SIZE) { // = 1024
 			// Calculate bitpacking width;
 			Flush<OP>();
 		}
@@ -112,7 +112,7 @@ public:
 		function = config.GetCompressionFunction(CompressionType::COMPRESSION_BITPACKING, type.InternalType());
 		CreateEmptySegment(checkpointer.GetRowGroup().start);
 
-		state.data_ptr = (void *)this;
+		state.data_ptr = (void *)this; // 指向自己
 	}
 
 	ColumnDataCheckpointer &checkpointer;
@@ -198,9 +198,11 @@ public:
 		idx_t minimal_widths_offset = AlignValue(data_ptr - handle->node->buffer);
 		idx_t widths_size = handle->node->buffer + Storage::BLOCK_SIZE - width_ptr - 1;
 		idx_t total_segment_size = minimal_widths_offset + widths_size;
+        // 将末尾的width数组移到紧跟着data后面
 		memmove(handle->node->buffer + minimal_widths_offset, width_ptr + 1, widths_size);
 
 		// Store the offset of the first width (which is at the highest address).
+        // 一开始在BLOCK的开头留了8个字节,将第一个width的offset存在这里
 		Store<idx_t>(minimal_widths_offset + widths_size - 1, handle->node->buffer);
 		handle.reset();
 
@@ -238,7 +240,7 @@ void BitpackingFinalizeCompress(CompressionState &state_p) {
 // Scan
 //===--------------------------------------------------------------------===//
 template <class T>
-struct BitpackingScanState : public SegmentScanState {
+struct BitpackingSzcanState : public SegmentScanState {
 public:
 	explicit BitpackingScanState(ColumnSegment &segment) {
 		auto &buffer_manager = BufferManager::GetBufferManager(segment.db);
@@ -318,6 +320,8 @@ void BitpackingScanPartial(ColumnSegment &segment, ColumnScanState &state, idx_t
 
 	// Fast path for when no compression was used, we can do a single memcopy
 	if (STANDARD_VECTOR_SIZE == BITPACKING_WIDTH_GROUP_SIZE) {
+        // 原来之前的GetEffectiveBitsNum说得是这个意思
+        // 可以做一个快速扫描的过程，虽然稍微占点空间
 		if (scan_state.current_width == sizeof(T) * 8 && scan_count <= BITPACKING_WIDTH_GROUP_SIZE &&
 		    scan_state.position_in_group == 0) {
 
@@ -449,7 +453,7 @@ CompressionFunction BitpackingFun::GetFunction(PhysicalType type) {
 		throw InternalException("Unsupported type for Bitpacking");
 	}
 }
-
+// 支持整数+BOOL
 bool BitpackingFun::TypeIsSupported(PhysicalType type) {
 	switch (type) {
 	case PhysicalType::BOOL:

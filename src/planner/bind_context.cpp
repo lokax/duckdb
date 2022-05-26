@@ -36,7 +36,7 @@ string BindContext::GetMatchingBinding(const string &column_name) {
 	}
 	return result;
 }
-
+// 候选名字
 vector<string> BindContext::GetSimilarBindings(const string &column_name) {
 	vector<pair<string, idx_t>> scores;
 	for (auto &kv : bindings) {

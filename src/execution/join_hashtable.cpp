@@ -5,6 +5,7 @@
 #include "duckdb/common/types/row_data_collection.hpp"
 #include "duckdb/common/vector_operations/vector_operations.hpp"
 #include "duckdb/storage/buffer_manager.hpp"
+#include <iostream>
 
 namespace duckdb {
 
@@ -536,23 +537,24 @@ void ScanStructure::NextAntiJoin(DataChunk &keys, DataChunk &left, DataChunk &re
 
 void ScanStructure::ConstructMarkJoinResult(DataChunk &join_keys, DataChunk &child, DataChunk &result) {
 	// for the initial set of columns we just reference the left side
-	result.SetCardinality(child);
+	result.SetCardinality(child); // 设置个数
 	for (idx_t i = 0; i < child.ColumnCount(); i++) {
-		result.data[i].Reference(child.data[i]);
+		result.data[i].Reference(child.data[i]); // 直接引用
 	}
 	auto &mark_vector = result.data.back();
-	mark_vector.SetVectorType(VectorType::FLAT_VECTOR);
+	mark_vector.SetVectorType(VectorType::FLAT_VECTOR); // 获取最后的mask
 	// first we set the NULL values from the join keys
 	// if there is any NULL in the keys, the result is NULL
 	auto bool_result = FlatVector::GetData<bool>(mark_vector);
-	auto &mask = FlatVector::Validity(mark_vector);
+	auto &mask = FlatVector::Validity(mark_vector); // mask来表示是否有null值
 	for (idx_t col_idx = 0; col_idx < join_keys.ColumnCount(); col_idx++) {
-		if (ht.null_values_are_equal[col_idx]) {
+		if (ht.null_values_are_equal[col_idx]) { // 如果null值之间相等就continue，不做其他他处理
+            // 在subquery的correlated exist会进入这里面来
 			continue;
 		}
 		VectorData jdata;
 		join_keys.data[col_idx].Orrify(join_keys.size(), jdata);
-		if (!jdata.validity.AllValid()) {
+		if (!jdata.validity.AllValid()) { // 如果存在空值
 			for (idx_t i = 0; i < join_keys.size(); i++) {
 				auto jidx = jdata.sel->get_index(i);
 				mask.Set(i, jdata.validity.RowIsValidUnsafe(jidx));
@@ -567,10 +569,15 @@ void ScanStructure::ConstructMarkJoinResult(DataChunk &join_keys, DataChunk &chi
 	} else {
 		memset(bool_result, 0, sizeof(bool) * child.size());
 	}
+    std::cout << "begin" << std::endl;
 	// if the right side contains NULL values, the result of any FALSE becomes NULL
+    // 如果null equal相等的话是不会设置has_null的，具体看Build函数。
+    // 这个应该是给非关联子查询 ANY使用的
 	if (ht.has_null) {
+        std::cout << "has null" << std::endl;
 		for (idx_t i = 0; i < child.size(); i++) {
 			if (!bool_result[i]) {
+                std::cout << "set invalid" << std::endl; 
 				mask.SetInvalid(i);
 			}
 		}
@@ -578,7 +585,7 @@ void ScanStructure::ConstructMarkJoinResult(DataChunk &join_keys, DataChunk &chi
 }
 
 void ScanStructure::NextMarkJoin(DataChunk &keys, DataChunk &input, DataChunk &result) {
-	D_ASSERT(result.ColumnCount() == input.ColumnCount() + 1);
+	D_ASSERT(result.ColumnCount() == input.ColumnCount() + 1); // 多出来一个Boolean列
 	D_ASSERT(result.data.back().GetType() == LogicalType::BOOLEAN);
 	// this method should only be called for a non-empty HT
 	D_ASSERT(ht.Count() > 0);

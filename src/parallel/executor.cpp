@@ -78,20 +78,20 @@ Pipeline *Executor::ScheduleUnionPipeline(const shared_ptr<Pipeline> &pipeline, 
 
 void Executor::ScheduleChildPipeline(Pipeline *parent, const shared_ptr<Pipeline> &pipeline, event_map_t &event_map,
                                      vector<shared_ptr<Event>> &events) {
-	pipeline->Ready();
+	pipeline->Ready(); // ready一下
 
-	auto child_ptr = pipeline.get();
-	auto dependencies = child_dependencies.find(child_ptr);
+	auto child_ptr = pipeline.get(); // child pipeline呢
+	auto dependencies = child_dependencies.find(child_ptr); // 拿出依赖child pipeline的pipeline
 	D_ASSERT(union_pipelines.find(child_ptr) == union_pipelines.end());
 	D_ASSERT(dependencies != child_dependencies.end());
 	// create the pipeline event and the event stack
-	auto pipeline_event = make_shared<PipelineEvent>(pipeline);
+	auto pipeline_event = make_shared<PipelineEvent>(pipeline); // 创建一个pipeline event
 
 	auto parent_entry = event_map.find(parent);
 	PipelineEventStack stack;
-	stack.pipeline_event = pipeline_event.get();
+	stack.pipeline_event = pipeline_event.get(); // 基于child pipeline的event
 	stack.pipeline_finish_event = parent_entry->second.pipeline_finish_event; // 这是干什么？
-	stack.pipeline_complete_event = parent_entry->second.pipeline_complete_event;
+	stack.pipeline_complete_event = parent_entry->second.pipeline_complete_event; // 这个似乎没关系？
 
 	// set up the dependencies for this child pipeline
 	unordered_set<Event *> finish_events;
@@ -402,7 +402,7 @@ void Executor::AddChildPipeline(Pipeline *current) {
 	D_ASSERT(!current->operators.empty());
 	// found another operator that is a source
 	// schedule a child pipeline
-	auto child_pipeline = make_shared<Pipeline>(*this);
+	auto child_pipeline = make_shared<Pipeline>(*this); // 创建child pipeline
 	auto child_pipeline_ptr = child_pipeline.get();
 	child_pipeline->sink = current->sink;
 	child_pipeline->operators = current->operators;
@@ -421,7 +421,7 @@ void Executor::AddChildPipeline(Pipeline *current) {
 	}
 	D_ASSERT(child_dependencies.find(child_pipeline_ptr) == child_dependencies.end());
 	child_dependencies.insert(make_pair(child_pipeline_ptr, move(dependencies)));
-	child_pipelines[current].push_back(move(child_pipeline));
+	child_pipelines[current].push_back(move(child_pipeline)); // 记录current pipeline的child pipeline
 }
 
 void Executor::BuildPipelines(PhysicalOperator *op, Pipeline *current) {
@@ -451,7 +451,7 @@ void Executor::BuildPipelines(PhysicalOperator *op, Pipeline *current) {
 			D_ASSERT(op->children.size() == 1);
 			// single operator:
 			// the operator becomes the data source of the current pipeline
-			current->source = op;
+			current->source = op; // 该sink算子变成当前流水线的source
 			// we create a new pipeline starting from the child
 			pipeline_child = op->children[0].get();
 			break;
@@ -471,9 +471,9 @@ void Executor::BuildPipelines(PhysicalOperator *op, Pipeline *current) {
 		case PhysicalOperatorType::PIECEWISE_MERGE_JOIN:
 		case PhysicalOperatorType::CROSS_PRODUCT:
 			// regular join, create a pipeline with RHS source that sinks into this pipeline
-			pipeline_child = op->children[1].get();
+			pipeline_child = op->children[1].get(); // 这是作为sink的算子吗？
 			// on the LHS (probe child), the operator becomes a regular operator
-			current->operators.push_back(op);
+			current->operators.push_back(op); // 当前流水线的execute op
 			if (op->IsSource()) {
 				// FULL or RIGHT outer join
 				// schedule a scan of the node as a child pipeline
@@ -517,7 +517,7 @@ void Executor::BuildPipelines(PhysicalOperator *op, Pipeline *current) {
 		case PhysicalOperatorType::DELIM_JOIN: {
 			// duplicate eliminated join
 			// for delim joins, recurse into the actual join
-			pipeline_child = op->children[0].get();
+			pipeline_child = op->children[0].get(); // 这是实际的join的左孩子吗？需要验证一下
 			break;
 		}
 		case PhysicalOperatorType::RECURSIVE_CTE: {
@@ -558,7 +558,7 @@ void Executor::BuildPipelines(PhysicalOperator *op, Pipeline *current) {
 		if (op->type == PhysicalOperatorType::DELIM_JOIN) {
 			// for delim joins, recurse into the actual join
 			// any pipelines in there depend on the main pipeline
-			auto &delim_join = (PhysicalDelimJoin &)*op;
+			auto &delim_join = (PhysicalDelimJoin &)*op; // 给子查询使用的
 			// any scan of the duplicate eliminated data on the RHS depends on this pipeline
 			// we add an entry to the mapping of (PhysicalOperator*) -> (Pipeline*)
 			for (auto &delim_scan : delim_join.delim_scans) {
@@ -568,7 +568,7 @@ void Executor::BuildPipelines(PhysicalOperator *op, Pipeline *current) {
 		}
 		if (!recursive_cte) {
 			// regular pipeline: schedule it
-			pipelines.push_back(move(pipeline));
+			pipelines.push_back(move(pipeline)); // 普通的pipeline
 		} else {
 			// CTE pipeline! add it to the CTE pipelines
 			D_ASSERT(recursive_cte);
@@ -589,7 +589,7 @@ void Executor::BuildPipelines(PhysicalOperator *op, Pipeline *current) {
 			D_ASSERT(delim_dependency->sink->type == PhysicalOperatorType::DELIM_JOIN);
 			auto &delim_join = (PhysicalDelimJoin &)*delim_dependency->sink;
 			current->AddDependency(delim_dependency);
-			current->source = (PhysicalOperator *)delim_join.distinct.get();
+			current->source = (PhysicalOperator *)delim_join.distinct.get(); // 重点
 			return;
 		}
 		case PhysicalOperatorType::EXECUTE: {
@@ -608,8 +608,8 @@ void Executor::BuildPipelines(PhysicalOperator *op, Pipeline *current) {
 			// index join: we only continue into the LHS
 			// the right side is probed by the index join
 			// so we don't need to do anything in the pipeline with this child
-			current->operators.push_back(op);
-			BuildPipelines(op->children[0].get(), current);
+			current->operators.push_back(op); // 右表有index？
+			BuildPipelines(op->children[0].get(), current); 
 			return;
 		}
 		case PhysicalOperatorType::UNION: {

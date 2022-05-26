@@ -43,7 +43,7 @@ PhysicalHashAggregate::PhysicalHashAggregate(ClientContext &context, vector<Logi
 	}
 	if (grouping_sets.empty()) { // set是空，创建一个set
 		GroupingSet set;
-		for (idx_t i = 0; i < group_types.size(); i++) {
+		for (idx_t i = 0; i < group_types.size(); i++) { // 如果group_types也是空的化，说明group by没有分组
 			set.insert(i); 
 		}
 		grouping_sets.push_back(move(set));

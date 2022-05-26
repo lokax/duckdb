@@ -34,6 +34,7 @@ public:
 				PackGroup<T>(dst + (i * width) / 8, src + i, width);
 			}
 		} else {
+            // 不对其的value个数
 			idx_t misaligned_count = count % BITPACKING_ALGORITHM_GROUP_SIZE;
 			T tmp_buffer[BITPACKING_ALGORITHM_GROUP_SIZE]; // TODO maybe faster on the heap?
 
@@ -42,6 +43,7 @@ public:
 			}
 
 			for (idx_t i = 0; i < count; i += BITPACKING_ALGORITHM_GROUP_SIZE) {
+                // 因为i总是8的倍数，所以不会存在边界问题！！！妙
 				PackGroup<T>(dst + (i * width) / 8, src + i, width);
 			}
 
@@ -110,7 +112,7 @@ private:
 	static bitpacking_width_t FindMinimumBitWidth(T *values, idx_t count) {
 		T min_value = values[0];
 		T max_value = values[0];
-
+        // 寻找最小值、最大值是多少
 		for (idx_t i = 1; i < count; i++) {
 			if (values[i] > max_value) {
 				max_value = values[i];

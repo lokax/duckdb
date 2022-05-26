@@ -59,12 +59,14 @@ void RemoveUnusedColumns::VisitOperator(LogicalOperator &op) {
 				auto count_star_fun = CountStarFun::GetFunction();
 				aggr.expressions.push_back(
 				    AggregateFunction::BindAggregateFunction(context, count_star_fun, {}, nullptr, false));
+                // 因为没有group和aggexpr的话，agg算子会计算错误？
+                // 并且在当前函数中没有办法修改整个计划，所以只能往里面加入一个容易计算的函数
 			}
 		}
 
 		// then recurse into the children of the aggregate
 		RemoveUnusedColumns remove(binder, context);
-		remove.VisitOperatorExpressions(op);
+		remove.VisitOperatorExpressions(op); // 通过这个来生成column_reference的map
 		remove.VisitOperator(*op.children[0]);
 		return;
 	}
@@ -73,7 +75,7 @@ void RemoveUnusedColumns::VisitOperator(LogicalOperator &op) {
 		if (!everything_referenced) {
 			auto &comp_join = (LogicalComparisonJoin &)op;
 
-			if (comp_join.join_type != JoinType::INNER) {
+			if (comp_join.join_type != JoinType::INNER) { // 只能试inner join
 				break;
 			}
 			// for inner joins with equality predicates in the form of (X=Y)
