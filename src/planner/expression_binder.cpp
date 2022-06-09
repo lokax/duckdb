@@ -168,24 +168,6 @@ LogicalType ExpressionBinder::ExchangeNullType(const LogicalType &type) {
 	return ExchangeType(type, LogicalTypeId::SQLNULL, LogicalType::INTEGER);
 }
 
-// 类型是UNKNOWN则变成VARCHAR
-void ExpressionBinder::ResolveParameterType(LogicalType &type) {
-	if (type.id() == LogicalTypeId::UNKNOWN) {
-		type = LogicalType::VARCHAR;
-	}
-}
-
-// 解决参数类型
-void ExpressionBinder::ResolveParameterType(unique_ptr<Expression> &expr) {
-    // 如果表达式的返回类型中有UNKNOWN的类型(给参数表达式使用的类型)
-	if (ContainsType(expr->return_type, LogicalTypeId::UNKNOWN)) {
-        // 为什么将类型变成VARCHAR？而不是其他的？
-        auto result_type = ExchangeType(expr->return_type, LogicalTypeId::UNKNOWN, LogicalType::VARCHAR);
-        // 添加Cast Expression做类型转换
-		expr = BoundCastExpression::AddCastToType(move(expr), result_type);
-	}
-}
-
 unique_ptr<Expression> ExpressionBinder::Bind(unique_ptr<ParsedExpression> &expr, LogicalType *result_type,
                                               bool root_expression) {
 	// bind the main expression
@@ -216,10 +198,6 @@ unique_ptr<Expression> ExpressionBinder::Bind(unique_ptr<ParsedExpression> &expr
 				result = BoundCastExpression::AddCastToType(move(result), result_type);
 			}
 		}
-		// check if we failed to convert any parameters
-		// if we did, we push a cast
-        // parameter expression是给prepare statement使用的
-		ExpressionBinder::ResolveParameterType(result); // 将UNKNOWN转成VARCHAR
 	}
 	if (result_type) {
 		*result_type = result->return_type;

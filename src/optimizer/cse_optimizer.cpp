@@ -51,6 +51,7 @@ void CommonSubExpressionOptimizer::CountExpressions(Expression &expr, CSEReplace
 	case ExpressionClass::BOUND_COLUMN_REF:
 	case ExpressionClass::BOUND_CONSTANT:
 	case ExpressionClass::BOUND_PARAMETER:
+    // weng: EXPLAIN SELECT x AND y * 2, x + 1 AND y * 2 FROM test; 应该是预防这种情况
 	// skip conjunctions and case, since short-circuiting might be incorrectly disabled otherwise
 	case ExpressionClass::BOUND_CONJUNCTION:
 	case ExpressionClass::BOUND_CASE:

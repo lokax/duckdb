@@ -1,5 +1,6 @@
 #include "duckdb/storage/table/update_segment.hpp"
 
+#include "duckdb/storage/statistics/distinct_statistics.hpp"
 #include "duckdb/storage/statistics/numeric_statistics.hpp"
 #include "duckdb/storage/statistics/string_statistics.hpp"
 #include "duckdb/storage/statistics/validity_statistics.hpp"

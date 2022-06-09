@@ -77,7 +77,7 @@ void FilterPullup::ProjectSetOperation(LogicalProjection &proj) {
 
 unique_ptr<LogicalOperator> FilterPullup::PullupProjection(unique_ptr<LogicalOperator> op) {
 	D_ASSERT(op->type == LogicalOperatorType::LOGICAL_PROJECTION);
-	op->children[0] = Rewrite(move(op->children[0]));
+	op->children[0] = Rewrite(move(op->children[0])); // 重写child
 	if (!filters_expr_pullup.empty()) {
 		auto &proj = (LogicalProjection &)*op;
 		// INTERSECT, EXCEPT, and DISTINCT

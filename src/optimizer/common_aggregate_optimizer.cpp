@@ -8,8 +8,8 @@
 namespace duckdb {
 
 void CommonAggregateOptimizer::VisitOperator(LogicalOperator &op) {
-	LogicalOperatorVisitor::VisitOperator(op);
-	switch (op.type) {
+	LogicalOperatorVisitor::VisitOperator(op); // 这是自底向上吗，和predicate pushdown这些自顶向下的不一样?
+	switch (op.type) { 
 	case LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY:
 		ExtractCommonAggregates((LogicalAggregate &)op);
 		break;

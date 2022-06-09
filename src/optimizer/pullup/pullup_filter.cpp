@@ -16,7 +16,7 @@ unique_ptr<LogicalOperator> FilterPullup::PullupFilter(unique_ptr<LogicalOperato
 		for (idx_t i = 0; i < op->expressions.size(); ++i) {
 			filters_expr_pullup.push_back(move(op->expressions[i]));
 		}
-		return child;
+		return child; // 把当前的filter算子去除
 	}
 	op->children[0] = Rewrite(move(op->children[0]));
 	return op;

@@ -135,7 +135,6 @@ void RadixPartitionedHashTable::Sink(ExecutionContext &context, GlobalSinkState 
 		return;
 	}
 
-	D_ASSERT(op.all_combinable);
 	D_ASSERT(!op.any_distinct);
 
 	if (group_chunk.size() > 0) {
@@ -176,8 +175,7 @@ void RadixPartitionedHashTable::Combine(ExecutionContext &context, GlobalSinkSta
 		llstate.ht->Partition();
 	}
 
-	lock_guard<mutex> glock(gstate.lock); // 加锁，做很少的事情，加锁开销不大
-	D_ASSERT(op.all_combinable);
+	lock_guard<mutex> glock(gstate.lock);
 	D_ASSERT(!op.any_distinct);
 
 	if (!llstate.is_empty) {
@@ -302,7 +300,7 @@ void RadixPartitionedHashTable::ScheduleTasks(Executor &executor, const shared_p
 
 bool RadixPartitionedHashTable::ForceSingleHT(GlobalSinkState &state) const {
 	auto &gstate = (RadixHTGlobalState &)state;
-	return !op.all_combinable || op.any_distinct || gstate.partition_info.n_partitions < 2;
+	return op.any_distinct || gstate.partition_info.n_partitions < 2;
 }
 
 //===--------------------------------------------------------------------===//
