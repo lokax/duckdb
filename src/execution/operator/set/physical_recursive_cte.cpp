@@ -30,6 +30,7 @@ class RecursiveCTEState : public GlobalSinkState {
 public:
 	explicit RecursiveCTEState(ClientContext &context, const PhysicalRecursiveCTE &op)
 	    : new_groups(STANDARD_VECTOR_SIZE) {
+            // 创建哈希表
 		ht = make_unique<GroupedAggregateHashTable>(BufferManager::GetBufferManager(context), op.types,
 		                                            vector<LogicalType>(), vector<BoundAggregateExpression *>());
 	}
@@ -127,7 +128,7 @@ void PhysicalRecursiveCTE::ExecuteRecursivePipelines(ExecutionContext &context) 
 
 	vector<shared_ptr<Event>> events;
 	executor.ReschedulePipelines(pipelines, events);
-
+    // 执行pipeline中的所有任务
 	while (true) {
 		executor.WorkOnTasks();
 		if (executor.HasError()) {
@@ -155,7 +156,7 @@ void PhysicalRecursiveCTE::BuildPipelines(Executor &executor, Pipeline &current,
 	sink_state.reset();
 
 	// recursive CTE
-	state.SetPipelineSource(current, this);
+	state.SetPipelineSource(current, this); // 设置当前流水线的source op为当前这个op
 	// the LHS of the recursive CTE is our initial state
 	// we build this pipeline as normal
 	auto pipeline_child = children[0].get();

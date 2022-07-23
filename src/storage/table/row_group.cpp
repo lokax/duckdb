@@ -12,6 +12,7 @@
 #include "duckdb/storage/checkpoint/table_data_writer.hpp"
 #include "duckdb/storage/meta_block_reader.hpp"
 #include "duckdb/transaction/transaction_manager.hpp"
+#include "duckdb/main/database.hpp"
 
 namespace duckdb {
 
@@ -159,9 +160,9 @@ unique_ptr<RowGroup> RowGroup::AddColumn(ClientContext &context, ColumnDefinitio
 	Verify();
 
 	// construct a new column data for the new column
-	auto added_column = ColumnData::CreateColumn(GetTableInfo(), columns.size(), start, new_column.type);
+	auto added_column = ColumnData::CreateColumn(GetTableInfo(), columns.size(), start, new_column.Type());
 	auto added_col_stats = make_shared<SegmentStatistics>(
-	    new_column.type, BaseStatistics::CreateEmpty(new_column.type, StatisticsType::LOCAL_STATS));
+	    new_column.Type(), BaseStatistics::CreateEmpty(new_column.Type(), StatisticsType::LOCAL_STATS));
 
 	idx_t rows_to_write = this->count;
 	if (rows_to_write > 0) {
@@ -777,10 +778,23 @@ RowGroupPointer RowGroup::Deserialize(Deserializer &main_source, const vector<Co
 
 	auto &source = reader.GetSource();
 	for (idx_t i = 0; i < columns.size(); i++) {
+<<<<<<< HEAD
 		auto stats = BaseStatistics::Deserialize(source, columns[i].type);
 		result.statistics.push_back(move(stats)); // row group每一列的统计数据
+=======
+		auto &col = columns[i];
+		if (col.Generated()) {
+			continue;
+		}
+		auto stats = BaseStatistics::Deserialize(source, columns[i].Type());
+		result.statistics.push_back(move(stats));
+>>>>>>> 3191940af93e628c48509a26eb5fbe42f814a2b2
 	}
 	for (idx_t i = 0; i < columns.size(); i++) {
+		auto &col = columns[i];
+		if (col.Generated()) {
+			continue;
+		}
 		BlockPointer pointer;
 		pointer.block_id = source.Read<block_id_t>();
 		pointer.offset = source.Read<uint64_t>();

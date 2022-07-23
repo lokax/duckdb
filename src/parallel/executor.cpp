@@ -42,7 +42,7 @@ struct PipelineEventStack {
 Pipeline *Executor::ScheduleUnionPipeline(const shared_ptr<Pipeline> &pipeline, const Pipeline *parent,
                                           event_map_t &event_map, vector<shared_ptr<Event>> &events) {
 	pipeline->Ready();
-
+    // 如果看不懂，可以去看Push Based的PR
 	D_ASSERT(pipeline);
 	auto pipeline_event = make_shared<PipelineEvent>(pipeline);
 
@@ -56,7 +56,7 @@ Pipeline *Executor::ScheduleUnionPipeline(const shared_ptr<Pipeline> &pipeline, 
 	stack.pipeline_finish_event = parent_stack.pipeline_finish_event;
 	stack.pipeline_complete_event = parent_stack.pipeline_complete_event;
 
-	stack.pipeline_event->AddDependency(*parent_stack.pipeline_event);
+	stack.pipeline_event->AddDependency(*parent_stack.pipeline_event); // 此处是否有bug呢
 	parent_stack.pipeline_finish_event->AddDependency(*pipeline_event);
 
 	events.push_back(move(pipeline_event));
@@ -64,6 +64,7 @@ Pipeline *Executor::ScheduleUnionPipeline(const shared_ptr<Pipeline> &pipeline, 
 
 	auto parent_pipeline = pipeline.get();
 
+    // 递归的去chain起来
 	auto union_entry = union_pipelines.find(pipeline.get());
 	if (union_entry != union_pipelines.end()) {
 		for (auto &entry : union_entry->second) {
@@ -79,7 +80,7 @@ void Executor::ScheduleChildPipeline(Pipeline *parent, const shared_ptr<Pipeline
 	pipeline->Ready(); // ready一下
 
 	auto child_ptr = pipeline.get(); // child pipeline呢
-	auto dependencies = child_dependencies.find(child_ptr); // 拿出依赖child pipeline的pipeline
+	auto dependencies = child_dependencies.find(child_ptr); // 拿出child pipeline所依赖的pipeline
 	D_ASSERT(union_pipelines.find(child_ptr) == union_pipelines.end());
 	D_ASSERT(dependencies != child_dependencies.end());
 	// create the pipeline event and the event stack
@@ -115,7 +116,7 @@ void Executor::SchedulePipeline(const shared_ptr<Pipeline> &pipeline, event_map_
                                 vector<shared_ptr<Event>> &events, bool complete_pipeline) {
 	D_ASSERT(pipeline);
 
-	pipeline->Ready();
+	pipeline->Ready(); // 初始化
 
 	auto pipeline_event = make_shared<PipelineEvent>(pipeline);
 	auto pipeline_finish_event = make_shared<PipelineFinishEvent>(pipeline);
@@ -126,6 +127,7 @@ void Executor::SchedulePipeline(const shared_ptr<Pipeline> &pipeline, event_map_
 	stack.pipeline_finish_event = pipeline_finish_event.get();
 	stack.pipeline_complete_event = pipeline_complete_event.get();
 
+    // A -> B: A依赖于B
 	pipeline_finish_event->AddDependency(*pipeline_event);
 	pipeline_complete_event->AddDependency(*pipeline_finish_event);
 
@@ -135,7 +137,7 @@ void Executor::SchedulePipeline(const shared_ptr<Pipeline> &pipeline, event_map_
 
 	event_map.insert(make_pair(pipeline.get(), stack));
 
-	auto union_entry = union_pipelines.find(pipeline.get());
+	auto union_entry = union_pipelines.find(pipeline.get()); // 如果该pipeline存在union pipeline
 	if (union_entry != union_pipelines.end()) {
 		auto parent_pipeline = pipeline.get();
 		for (auto &entry : union_entry->second) {
@@ -321,7 +323,7 @@ void Executor::CancelTasks() {
 		pipelines.clear();
 		union_pipelines.clear();
 		child_pipelines.clear();
-		events.clear();
+		events.clear(); // 已经把event清除掉了，后续的WorkOnTasks不会再去调度依赖当前的pipeline了
 	}
 	WorkOnTasks();
 	for (auto &weak_ref : weak_references) {
@@ -355,12 +357,12 @@ PendingExecutionResult Executor::ExecuteTask() {
 		if (!task) {
 			scheduler.GetTaskFromProducer(*producer, task);
 		}
-		if (task) {
+		if (task) { // 这个任务会一直保存在成员变量中
 			// if we have a task, partially process it
-			auto result = task->Execute(TaskExecutionMode::PROCESS_PARTIAL);
+			auto result = task->Execute(TaskExecutionMode::PROCESS_PARTIAL); // 部分处理任务
 			if (result != TaskExecutionResult::TASK_NOT_FINISHED) {
 				// if the task is finished, clean it up
-				task.reset();
+				task.reset();  // 任务完成了，则可以清除了
 			}
 		}
 		if (!HasError()) {
@@ -378,12 +380,12 @@ PendingExecutionResult Executor::ExecuteTask() {
 	D_ASSERT(!task);
 
 	lock_guard<mutex> elock(executor_lock);
-	pipelines.clear();
+	pipelines.clear(); // pipeline不需要了
 	NextExecutor();
 	if (!exceptions.empty()) { // LCOV_EXCL_START
 		// an exception has occurred executing one of the pipelines
 		execution_result = PendingExecutionResult::EXECUTION_ERROR;
-		ThrowExceptionInternal();
+		ThrowExceptionInternal(); // 这里不需要加锁
 	} // LCOV_EXCL_STOP
 	execution_result = PendingExecutionResult::RESULT_READY;
 	return execution_result;
@@ -412,10 +414,10 @@ void Executor::AddChildPipeline(Pipeline *current) {
 	// found another operator that is a source
 	// schedule a child pipeline
 	auto child_pipeline = make_shared<Pipeline>(*this); // 创建child pipeline
-	auto child_pipeline_ptr = child_pipeline.get();
-	child_pipeline->sink = current->sink;
-	child_pipeline->operators = current->operators;
-	child_pipeline->source = current->operators.back();
+	auto child_pipeline_ptr = child_pipeline.get(); // child pipeline raw ptr
+	child_pipeline->sink = current->sink; // 同一个sink
+	child_pipeline->operators = current->operators; // 同一个operators
+	child_pipeline->source = current->operators.back(); // 末尾的operator应该是join算子
 	D_ASSERT(child_pipeline->source->IsSource());
 	child_pipeline->operators.pop_back();
 
@@ -492,12 +494,24 @@ void Executor::Flush(ThreadContext &tcontext) {
 bool Executor::GetPipelinesProgress(double &current_progress) { // LCOV_EXCL_START
 	lock_guard<mutex> elock(executor_lock);
 
-	if (!pipelines.empty()) {
-		return pipelines.back()->GetProgress(current_progress);
-	} else {
-		current_progress = -1;
-		return true;
+	vector<double> progress;
+	vector<idx_t> cardinality;
+	idx_t total_cardinality = 0;
+	for (auto &pipeline : pipelines) {
+		double child_percentage;
+		idx_t child_cardinality;
+		if (!pipeline->GetProgress(child_percentage, child_cardinality)) {
+			return false;
+		}
+		progress.push_back(child_percentage);
+		cardinality.push_back(child_cardinality);
+		total_cardinality += child_cardinality;
 	}
+	current_progress = 0;
+	for (size_t i = 0; i < progress.size(); i++) {
+		current_progress += progress[i] * double(cardinality[i]) / double(total_cardinality);
+	}
+	return true;
 } // LCOV_EXCL_STOP
 
 bool Executor::HasResultCollector() {

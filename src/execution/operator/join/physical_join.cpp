@@ -29,7 +29,7 @@ void PhysicalJoin::BuildJoinPipelines(Executor &executor, Pipeline &current, Pip
 	op.sink_state.reset();
 
 	// on the LHS (probe child), the operator becomes a regular operator
-	state.AddPipelineOperator(current, &op);
+	state.AddPipelineOperator(current, &op); // 添加join作为execute的operator(用来作为probe)
 	if (op.IsSource()) {
 		// FULL or RIGHT outer join
 		// schedule a scan of the node as a child pipeline

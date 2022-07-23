@@ -21,26 +21,29 @@ void PhysicalUnion::BuildPipelines(Executor &executor, Pipeline &current, Pipeli
 	op_state.reset();
 	sink_state.reset();
 
-	auto union_pipeline = make_shared<Pipeline>(executor);
-	auto pipeline_ptr = union_pipeline.get();
-	auto &child_pipelines = state.GetChildPipelines(executor);
+	auto union_pipeline = make_shared<Pipeline>(executor); // union pipeline
+	auto pipeline_ptr = union_pipeline.get(); // union pipeline raw ptr
+	auto &child_pipelines = state.GetChildPipelines(executor); // 
 	auto &child_dependencies = state.GetChildDependencies(executor);
 	auto &union_pipelines = state.GetUnionPipelines(executor);
 	// set up dependencies for any child pipelines to this union pipeline
-	auto child_entry = child_pipelines.find(&current);
+	auto child_entry = child_pipelines.find(&current); // 发现current流水线的孩子流水线
 	if (child_entry != child_pipelines.end()) {
 		for (auto &current_child : child_entry->second) {
 			D_ASSERT(child_dependencies.find(current_child.get()) != child_dependencies.end());
+            // 这些pipeline也需要依赖于当前的union pipeline的完成
 			child_dependencies[current_child.get()].push_back(pipeline_ptr);
 		}
 	}
 	// for the current pipeline, continue building on the LHS
+    // 为union pipeline设置和current pipeline同样的operator
 	state.SetPipelineOperators(*union_pipeline, state.GetPipelineOperators(current));
 	children[0]->BuildPipelines(executor, current, state);
 	// insert the union pipeline as a union pipeline of the current node
 	union_pipelines[&current].push_back(move(union_pipeline));
 
 	// for the union pipeline, build on the RHS
+    // union pipeline和current pipeline同一个sink
 	state.SetPipelineSink(*pipeline_ptr, state.GetPipelineSink(current));
 	children[1]->BuildPipelines(executor, *pipeline_ptr, state);
 }

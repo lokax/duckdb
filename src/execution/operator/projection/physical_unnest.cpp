@@ -221,7 +221,7 @@ OperatorResultType PhysicalUnnest::ExecuteInternal(ClientContext &context, DataC
 					list_length = (int64_t)list_entry.length;
 				}
 
-				if (list_length > state.list_length) {
+				if (list_length > state.list_length) { // 找到最大的length?
 					state.list_length = list_length;
 				}
 			}
@@ -243,6 +243,7 @@ OperatorResultType PhysicalUnnest::ExecuteInternal(ClientContext &context, DataC
 			output_offset = input.ColumnCount();
 		}
 
+        // SELECT UNNEST([1, 2, 3]) 这种情况下list_data只有一列，maybe
 		for (idx_t col_idx = 0; col_idx < state.list_data.ColumnCount(); col_idx++) {
 			auto &result_vector = chunk.data[col_idx + output_offset];
 
@@ -250,8 +251,8 @@ OperatorResultType PhysicalUnnest::ExecuteInternal(ClientContext &context, DataC
 				// UNNEST(NULL)
 				chunk.SetCardinality(0);
 			} else {
-				auto &vdata = state.list_vector_data[col_idx];
-				auto &child_data = state.list_child_data[col_idx];
+				auto &vdata = state.list_vector_data[col_idx]; // list的vector
+				auto &child_data = state.list_child_data[col_idx]; // list内部包含的实际数据的vector
 				auto current_idx = vdata.sel->get_index(state.parent_position);
 
 				auto list_data = (list_entry_t *)vdata.data;
