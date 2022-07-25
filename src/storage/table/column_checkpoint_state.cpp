@@ -21,8 +21,17 @@ ColumnCheckpointState::ColumnCheckpointState(RowGroup &row_group, ColumnData &co
 ColumnCheckpointState::~ColumnCheckpointState() {
 }
 
+<<<<<<< HEAD
 void ColumnCheckpointState::
 FlushSegment(unique_ptr<ColumnSegment> segment, idx_t segment_size) {
+=======
+unique_ptr<BaseStatistics> ColumnCheckpointState::GetStatistics() {
+	D_ASSERT(global_stats);
+	return move(global_stats);
+}
+
+void ColumnCheckpointState::FlushSegment(unique_ptr<ColumnSegment> segment, idx_t segment_size) {
+>>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 	D_ASSERT(segment_size <= Storage::BLOCK_SIZE);
 	auto tuple_count = segment->count.load();
 	if (tuple_count == 0) { // LCOV_EXCL_START
@@ -97,7 +106,7 @@ FlushSegment(unique_ptr<ColumnSegment> segment, idx_t segment_size) {
 			// pin the new block
 			auto new_handle = buffer_manager.Pin(partial_block->block);
 			// memcpy the contents of the old block to the new block
-			memcpy(new_handle->Ptr() + offset_in_block, old_handle->Ptr(), segment_size);
+			memcpy(new_handle.Ptr() + offset_in_block, old_handle.Ptr(), segment_size);
 		} else {
 			// convert the segment into a persistent segment that points to this block
 			segment->ConvertToPersistent(block_id);
@@ -114,7 +123,7 @@ FlushSegment(unique_ptr<ColumnSegment> segment, idx_t segment_size) {
 }
 
 void ColumnCheckpointState::FlushToDisk() {
-	auto &meta_writer = writer.GetMetaWriter();
+	auto &meta_writer = writer.GetTableWriter();
 
 	meta_writer.Write<idx_t>(data_pointers.size()); // 写 data pointers size
 	// then write the data pointers themselves

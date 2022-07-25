@@ -1,24 +1,31 @@
 #include "duckdb/storage/data_table.hpp"
 
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
+#include "duckdb/common/chrono.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/helper.hpp"
 #include "duckdb/common/vector_operations/vector_operations.hpp"
 #include "duckdb/execution/expression_executor.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/planner/constraints/list.hpp"
+#include "duckdb/planner/expression_binder/check_binder.hpp"
 #include "duckdb/planner/table_filter.hpp"
+#include "duckdb/storage/checkpoint/table_data_writer.hpp"
 #include "duckdb/storage/storage_manager.hpp"
-#include "duckdb/storage/table/row_group.hpp"
 #include "duckdb/storage/table/persistent_table_data.hpp"
+#include "duckdb/storage/table/row_group.hpp"
+#include "duckdb/storage/table/standard_column_data.hpp"
 #include "duckdb/transaction/transaction.hpp"
 #include "duckdb/transaction/transaction_manager.hpp"
+<<<<<<< HEAD
 #include "duckdb/storage/checkpoint/table_data_writer.hpp"
 #include "duckdb/storage/table/standard_column_data.hpp"
 #include "duckdb/planner/expression_binder/check_binder.hpp"
 
 #include "duckdb/common/chrono.hpp"
 #include <iostream>
+=======
+>>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 
 namespace duckdb {
 
@@ -88,7 +95,7 @@ DataTable::DataTable(ClientContext &context, DataTable &parent, ColumnDefinition
 
 	auto &transaction = Transaction::GetTransaction(context);
 
-	ExpressionExecutor executor;
+	ExpressionExecutor executor(Allocator::Get(context));
 	DataChunk dummy_chunk;
 	Vector result(new_column_type);
 	if (!default_value) {
@@ -213,10 +220,11 @@ DataTable::DataTable(ClientContext &context, DataTable &parent, idx_t changed_id
 			scan_types.push_back(parent.column_definitions[bound_columns[i]].Type());
 		}
 	}
+	auto &allocator = Allocator::Get(context);
 	DataChunk scan_chunk;
-	scan_chunk.Initialize(scan_types);
+	scan_chunk.Initialize(allocator, scan_types);
 
-	ExpressionExecutor executor;
+	ExpressionExecutor executor(allocator);
 	executor.AddExpression(cast_expr);
 
 	TableScanState scan_state;
@@ -445,7 +453,7 @@ static void VerifyGeneratedExpressionSuccess(TableCatalogEntry &table, DataChunk
                                              column_t index) {
 	auto &col = table.columns[index];
 	D_ASSERT(col.Generated());
-	ExpressionExecutor executor(expr);
+	ExpressionExecutor executor(Allocator::DefaultAllocator(), expr);
 	Vector result(col.Type());
 	try {
 		executor.ExecuteExpression(chunk, result);
@@ -455,7 +463,7 @@ static void VerifyGeneratedExpressionSuccess(TableCatalogEntry &table, DataChunk
 }
 
 static void VerifyCheckConstraint(TableCatalogEntry &table, Expression &expr, DataChunk &chunk) {
-	ExpressionExecutor executor(expr);
+	ExpressionExecutor executor(Allocator::DefaultAllocator(), expr);
 	Vector result(LogicalType::INTEGER);
 	try {
 		executor.ExecuteExpression(chunk, result);
@@ -464,8 +472,8 @@ static void VerifyCheckConstraint(TableCatalogEntry &table, Expression &expr, Da
 	} catch (...) { // LCOV_EXCL_START
 		throw ConstraintException("CHECK constraint failed: %s (Unknown Error)", table.name);
 	} // LCOV_EXCL_STOP
-	VectorData vdata;
-	result.Orrify(chunk.size(), vdata);
+	UnifiedVectorFormat vdata;
+	result.ToUnifiedFormat(chunk.size(), vdata);
 
 	auto dataptr = (int32_t *)vdata.data;
 	for (idx_t i = 0; i < chunk.size(); i++) {
@@ -476,7 +484,7 @@ static void VerifyCheckConstraint(TableCatalogEntry &table, Expression &expr, Da
 	}
 }
 
-static bool IsForeignKeyIndex(const vector<idx_t> &fk_keys, Index &index, ForeignKeyType fk_type) {
+bool DataTable::IsForeignKeyIndex(const vector<idx_t> &fk_keys, Index &index, ForeignKeyType fk_type) {
 	if (fk_type == ForeignKeyType::FK_TYPE_PRIMARY_KEY_TABLE ? !index.IsUnique() : !index.IsForeign()) {
 		return false;
 	}
@@ -496,17 +504,6 @@ static bool IsForeignKeyIndex(const vector<idx_t> &fk_keys, Index &index, Foreig
 		}
 	}
 	return true;
-}
-
-Index *TableIndexList::FindForeignKeyIndex(const vector<idx_t> &fk_keys, ForeignKeyType fk_type) {
-	Index *result = nullptr;
-	Scan([&](Index &index) {
-		if (IsForeignKeyIndex(fk_keys, index, fk_type)) {
-			result = &index;
-		}
-		return false;
-	});
-	return result;
 }
 
 static void VerifyForeignKeyConstraint(const BoundForeignKeyConstraint &bfk, ClientContext &context, DataChunk &chunk,
@@ -564,7 +561,7 @@ static void VerifyForeignKeyConstraint(const BoundForeignKeyConstraint &bfk, Cli
 	if (transaction_check) {
 		vector<unique_ptr<Index>> &transact_index_vec = transaction.storage.GetIndexes(data_table);
 		for (idx_t i = 0; i < transact_index_vec.size(); i++) {
-			if (IsForeignKeyIndex(*dst_keys_ptr, *transact_index_vec[i], fk_type)) {
+			if (DataTable::IsForeignKeyIndex(*dst_keys_ptr, *transact_index_vec[i], fk_type)) {
 				if (is_append) {
 					transact_index_vec[i]->VerifyAppendForeignKey(dst_chunk, tran_err_msgs.data());
 				} else {
@@ -725,7 +722,7 @@ void DataTable::Append(Transaction &transaction, DataChunk &chunk, TableAppendSt
 			// merge the stats
 			lock_guard<mutex> stats_guard(stats_lock);
 			for (idx_t i = 0; i < column_definitions.size(); i++) {
-				column_stats[i]->stats->Merge(*current_row_group->GetStatistics(i));
+				current_row_group->MergeIntoStatistics(i, *column_stats[i]->stats);
 			}
 		}
 		state.remaining_append_count -= append_count;
@@ -774,7 +771,7 @@ void DataTable::ScanTableSegment(idx_t row_start, idx_t count, const std::functi
 		types.push_back(col.Type());
 	}
 	DataChunk chunk;
-	chunk.Initialize(types);
+	chunk.Initialize(Allocator::Get(db), types);
 
 	CreateIndexScanState state;
 
@@ -807,6 +804,9 @@ void DataTable::ScanTableSegment(idx_t row_start, idx_t count, const std::functi
 }
 
 void DataTable::WriteToLog(WriteAheadLog &log, idx_t row_start, idx_t count) {
+	if (log.skip_writing) {
+		return;
+	}
 	log.WriteSetTable(info->schema, info->table);
 	ScanTableSegment(row_start, count, [&](DataChunk &chunk) { log.WriteInsert(chunk); });
 }
@@ -973,7 +973,7 @@ void DataTable::RemoveFromIndexes(Vector &row_identifiers, idx_t count) {
 		state.column_ids.push_back(i);
 	}
 	DataChunk result;
-	result.Initialize(types);
+	result.Initialize(Allocator::Get(db), types);
 
 	row_group->InitializeScanWithOffset(state.row_group_scan_state, row_group_vector_idx);
 	row_group->ScanCommitted(state.row_group_scan_state, result,
@@ -1018,7 +1018,7 @@ idx_t DataTable::Delete(TableCatalogEntry &table, ClientContext &context, Vector
 
 	auto &transaction = Transaction::GetTransaction(context);
 
-	row_identifiers.Normalify(count);
+	row_identifiers.Flatten(count);
 	auto ids = FlatVector::GetData<row_t>(row_identifiers);
 	auto first_id = ids[0];
 
@@ -1034,7 +1034,7 @@ idx_t DataTable::Delete(TableCatalogEntry &table, ClientContext &context, Vector
 			col_ids.push_back(column_definitions[i].StorageOid());
 			types.emplace_back(column_definitions[i].Type());
 		}
-		verify_chunk.Initialize(types);
+		verify_chunk.Initialize(Allocator::Get(context), types);
 		Fetch(transaction, verify_chunk, col_ids, row_identifiers, count, fetch_state);
 	}
 	VerifyDeleteConstraints(table, context, verify_chunk);
@@ -1172,8 +1172,8 @@ void DataTable::Update(TableCatalogEntry &table, ClientContext &context, Vector 
 	// now perform the actual update
 	auto &transaction = Transaction::GetTransaction(context);
 
-	updates.Normalify();
-	row_ids.Normalify(count);
+	updates.Flatten();
+	row_ids.Flatten(count);
 	auto ids = FlatVector::GetData<row_t>(row_ids);
 	auto first_id = FlatVector::GetValue<row_t>(row_ids, 0);
 	if (first_id >= MAX_ROW_ID) {
@@ -1231,8 +1231,8 @@ void DataTable::UpdateColumn(TableCatalogEntry &table, ClientContext &context, V
 	// now perform the actual update
 	auto &transaction = Transaction::GetTransaction(context);
 
-	updates.Normalify();
-	row_ids.Normalify(updates.size());
+	updates.Flatten();
+	row_ids.Flatten(updates.size());
 	auto first_id = FlatVector::GetValue<row_t>(row_ids, 0);
 	if (first_id >= MAX_ROW_ID) {
 		throw NotImplementedException("Cannot update a column-path on transaction local data");
@@ -1274,8 +1274,10 @@ bool DataTable::ScanCreateIndex(CreateIndexScanState &state, DataChunk &result, 
 }
 
 void DataTable::AddIndex(unique_ptr<Index> index, const vector<unique_ptr<Expression>> &expressions) {
+	auto &allocator = Allocator::Get(db);
+
 	DataChunk result;
-	result.Initialize(index->logical_types);
+	result.Initialize(allocator, index->logical_types);
 
 	DataChunk intermediate;
 	vector<LogicalType> intermediate_types;
@@ -1286,7 +1288,7 @@ void DataTable::AddIndex(unique_ptr<Index> index, const vector<unique_ptr<Expres
 		intermediate_types.push_back(col.Type());
 	}
 	intermediate_types.emplace_back(LogicalType::ROW_TYPE);
-	intermediate.Initialize(intermediate_types);
+	intermediate.Initialize(allocator, intermediate_types);
 
 	// initialize an index scan
 	CreateIndexScanState state;
@@ -1300,7 +1302,7 @@ void DataTable::AddIndex(unique_ptr<Index> index, const vector<unique_ptr<Expres
 	{
 		IndexLock lock;
 		index->InitializeLock(lock);
-		ExpressionExecutor executor(expressions);
+		ExpressionExecutor executor(allocator, expressions);
 		while (true) {
 			intermediate.Reset();
 			// scan a new chunk from the table to index
@@ -1327,19 +1329,20 @@ unique_ptr<BaseStatistics> DataTable::GetStatistics(ClientContext &context, colu
 	if (column_id == COLUMN_IDENTIFIER_ROW_ID) {
 		return nullptr;
 	}
-<<<<<<< HEAD
-	lock_guard<mutex> stats_guard(stats_lock); // 统计信息锁
-	return column_stats[column_id]->Copy(); // 返回一个拷贝
-=======
 	lock_guard<mutex> stats_guard(stats_lock);
 	return column_stats[column_id]->stats->Copy();
->>>>>>> 3191940af93e628c48509a26eb5fbe42f814a2b2
+}
+
+void DataTable::SetStatistics(column_t column_id, const std::function<void(BaseStatistics &)> &set_fun) {
+	D_ASSERT(column_id != COLUMN_IDENTIFIER_ROW_ID);
+	lock_guard<mutex> stats_guard(stats_lock);
+	set_fun(*column_stats[column_id]->stats);
 }
 
 //===--------------------------------------------------------------------===//
 // Checkpoint
 //===--------------------------------------------------------------------===//
-BlockPointer DataTable::Checkpoint(TableDataWriter &writer) {
+void DataTable::Checkpoint(TableDataWriter &writer) {
 	// checkpoint each individual row group
 	// FIXME: we might want to combine adjacent row groups in case they have had deletions...
 	vector<unique_ptr<BaseStatistics>> global_stats;
@@ -1356,18 +1359,41 @@ BlockPointer DataTable::Checkpoint(TableDataWriter &writer) {
 	}
 	// store the current position in the metadata writer
 	// this is where the row groups for this table start
+<<<<<<< HEAD
 	auto &meta_writer = writer.GetMetaWriter();
     auto pointer = meta_writer.GetBlockPointer();
 
 	for (auto &stats : global_stats) {
 		stats->Serialize(meta_writer); // 这是全局的统计数据吗
+=======
+	auto &data_writer = writer.GetTableWriter();
+	auto pointer = data_writer.GetBlockPointer();
+
+	for (auto &stats : global_stats) {
+		stats->Serialize(data_writer);
+>>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 	}
 	// now start writing the row group pointers to disk
-	meta_writer.Write<uint64_t>(row_group_pointers.size());
+	data_writer.Write<uint64_t>(row_group_pointers.size());
 	for (auto &row_group_pointer : row_group_pointers) {
-		RowGroup::Serialize(row_group_pointer, meta_writer);
+		RowGroup::Serialize(row_group_pointer, data_writer);
 	}
-	return pointer;
+	// Now we serialize indexes in the tabledata_writer
+	auto blocks_info = info->indexes.SerializeIndexes(data_writer);
+
+	// metadata writing time
+	auto &metadata_writer = writer.GetMetaWriter();
+
+	// write the block pointer for the table info
+	metadata_writer.Write<block_id_t>(pointer.block_id);
+	metadata_writer.Write<uint64_t>(pointer.offset);
+
+	// Write-off block ids and offsets of indexes
+	metadata_writer.Write<idx_t>(blocks_info.size());
+	for (auto &block_info : blocks_info) {
+		metadata_writer.Write<idx_t>(block_info.block_id);
+		metadata_writer.Write<idx_t>(block_info.offset);
+	}
 }
 
 void DataTable::CommitDropColumn(idx_t index) {

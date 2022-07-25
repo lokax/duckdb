@@ -371,7 +371,7 @@ enum class LogicalTypeId : uint8_t {
 
 	HUGEINT = 50,
 	POINTER = 51,
-	HASH = 52,
+	// HASH = 52, // deprecated, uses UBIGINT instead
 	VALIDITY = 53,
 	UUID = 54,
 
@@ -380,7 +380,8 @@ enum class LogicalTypeId : uint8_t {
 	MAP = 102,
 	TABLE = 103,
 	ENUM = 104,
-	AGGREGATE_STATE = 105
+	AGGREGATE_STATE = 105,
+	LAMBDA = 106
 };
 
 struct ExtraTypeInfo;
@@ -436,13 +437,19 @@ struct LogicalType {
 	DUCKDB_API bool IsIntegral() const;
 	DUCKDB_API bool IsNumeric() const;
 	DUCKDB_API hash_t Hash() const;
+	DUCKDB_API void SetAlias(string &alias);
+	DUCKDB_API string GetAlias() const;
 
 	DUCKDB_API static LogicalType MaxLogicalType(const LogicalType &left, const LogicalType &right);
+	DUCKDB_API static void SetCatalog(LogicalType &type, TypeCatalogEntry* catalog_entry);
+	DUCKDB_API static TypeCatalogEntry* GetCatalog(const LogicalType &type);
 
 	//! Gets the decimal properties of a numeric type. Fails if the type is not numeric.
 	DUCKDB_API bool GetDecimalProperties(uint8_t &width, uint8_t &scale) const;
 
 	DUCKDB_API void Verify() const;
+
+	DUCKDB_API bool IsValid() const;
 
 private:
 	LogicalTypeId id_;
@@ -454,6 +461,7 @@ private:
 
 public:
 	static constexpr const LogicalTypeId SQLNULL = LogicalTypeId::SQLNULL;
+	static constexpr const LogicalTypeId UNKNOWN = LogicalTypeId::UNKNOWN;
 	static constexpr const LogicalTypeId BOOLEAN = LogicalTypeId::BOOLEAN;
 	static constexpr const LogicalTypeId TINYINT = LogicalTypeId::TINYINT;
 	static constexpr const LogicalTypeId UTINYINT = LogicalTypeId::UTINYINT;
@@ -479,9 +487,10 @@ public:
 	static constexpr const LogicalTypeId INTERVAL = LogicalTypeId::INTERVAL;
 	static constexpr const LogicalTypeId HUGEINT = LogicalTypeId::HUGEINT;
 	static constexpr const LogicalTypeId UUID = LogicalTypeId::UUID;
-	static constexpr const LogicalTypeId HASH = LogicalTypeId::HASH;
+	static constexpr const LogicalTypeId HASH = LogicalTypeId::UBIGINT;
 	static constexpr const LogicalTypeId POINTER = LogicalTypeId::POINTER;
 	static constexpr const LogicalTypeId TABLE = LogicalTypeId::TABLE;
+	static constexpr const LogicalTypeId LAMBDA = LogicalTypeId::LAMBDA;
 	static constexpr const LogicalTypeId INVALID = LogicalTypeId::INVALID;
 	static constexpr const LogicalTypeId JSON = LogicalTypeId::JSON;
 	static constexpr const LogicalTypeId ROW_TYPE = LogicalTypeId::BIGINT;
@@ -508,6 +517,7 @@ public:
 struct DecimalType {
 	DUCKDB_API static uint8_t GetWidth(const LogicalType &type);
 	DUCKDB_API static uint8_t GetScale(const LogicalType &type);
+	DUCKDB_API static uint8_t MaxWidth();
 };
 
 struct StringType {

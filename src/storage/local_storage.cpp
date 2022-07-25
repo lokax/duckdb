@@ -12,7 +12,8 @@
 
 namespace duckdb {
 
-LocalTableStorage::LocalTableStorage(DataTable &table) : table(table), active_scans(0) {
+LocalTableStorage::LocalTableStorage(DataTable &table)
+    : table(table), allocator(Allocator::Get(table.db)), collection(allocator), active_scans(0) {
 	Clear();
 }
 
@@ -75,7 +76,7 @@ void LocalTableStorage::Clear() {
 			for (auto &expr : art.unbound_expressions) {
 				unbound_expressions.push_back(expr->Copy());
 			}
-			indexes.push_back(make_unique<ART>(art.column_ids, move(unbound_expressions), art.constraint_type));
+			indexes.push_back(make_unique<ART>(art.column_ids, move(unbound_expressions), art.constraint_type, art.db));
 		}
 		return false;
 	});
@@ -231,8 +232,8 @@ idx_t LocalStorage::Delete(DataTable *table, Vector &row_ids, idx_t count) {
 		// Slice out the rows that are being deleted from the storage Chunk
 		auto &chunk = storage->collection.GetChunk(chunk_idx);
 
-		VectorData row_ids_data;
-		row_ids.Orrify(count, row_ids_data);
+		UnifiedVectorFormat row_ids_data;
+		row_ids.ToUnifiedFormat(count, row_ids_data);
 		auto row_identifiers = (const row_t *)row_ids_data.data;
 		SelectionVector sel(count);
 		for (idx_t i = 0; i < count; ++i) {
@@ -280,8 +281,13 @@ idx_t LocalStorage::Delete(DataTable *table, Vector &row_ids, idx_t count) {
 template <class T>
 static void TemplatedUpdateLoop(Vector &data_vector, Vector &update_vector, Vector &row_ids, idx_t count,
                                 idx_t base_index) {
+<<<<<<< HEAD
 	VectorData udata;
 	update_vector.Orrify(count, udata); // 获取选择向量和数据指针以及validate mask
+=======
+	UnifiedVectorFormat udata;
+	update_vector.ToUnifiedFormat(count, udata);
+>>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 
 	auto target = FlatVector::GetData<T>(data_vector);
 	auto &mask = FlatVector::Validity(data_vector);
@@ -365,7 +371,7 @@ bool LocalStorage::ScanTableStorage(DataTable &table, LocalTableStorage &storage
 	}
 
 	DataChunk chunk;
-	chunk.Initialize(table.GetTypes());
+	chunk.Initialize(storage.allocator, table.GetTypes());
 
 	// initialize the scan
 	LocalScanState state;
@@ -448,7 +454,8 @@ void LocalStorage::AddColumn(DataTable *old_dt, DataTable *new_dt, ColumnDefinit
 
 	// now add the new column filled with the default value to all chunks
 	const auto &new_column_type = new_column.Type();
-	ExpressionExecutor executor;
+	auto &allocator = Allocator::DefaultAllocator();
+	ExpressionExecutor executor(allocator);
 	DataChunk dummy_chunk;
 	if (default_value) {
 		executor.AddExpression(*default_value);
@@ -464,7 +471,7 @@ void LocalStorage::AddColumn(DataTable *old_dt, DataTable *new_dt, ColumnDefinit
 		} else {
 			FlatVector::Validity(result).SetAllInvalid(chunk.size());
 		}
-		result.Normalify(chunk.size());
+		result.Flatten(chunk.size());
 		chunk.data.push_back(move(result));
 	}
 
@@ -488,8 +495,8 @@ void LocalStorage::FetchChunk(DataTable *table, Vector &row_ids, idx_t count, Da
 	idx_t chunk_idx = GetChunk(row_ids);
 	auto &chunk = storage->collection.GetChunk(chunk_idx);
 
-	VectorData row_ids_data;
-	row_ids.Orrify(count, row_ids_data);
+	UnifiedVectorFormat row_ids_data;
+	row_ids.ToUnifiedFormat(count, row_ids_data);
 	auto row_identifiers = (const row_t *)row_ids_data.data;
 	SelectionVector sel(count);
 	for (idx_t i = 0; i < count; ++i) {

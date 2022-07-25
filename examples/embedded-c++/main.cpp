@@ -4,7 +4,12 @@
 using namespace duckdb;
 
 int main() {
+<<<<<<< HEAD
 	DuckDB db("hello-db");
+=======
+	DuckDB db(nullptr);
+
+>>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 	Connection con(db);
 
 	con.Query("CREATE TABLE src (a INTEGER, b INTEGER)");
@@ -40,6 +45,9 @@ int main() {
 	con2.Query("BEGIN TRANSACTION");
 	auto result = con2.Query("UPDATE test SET a = 20000 WHERE rowid = 0");
 	result->Print();
+<<<<<<< HEAD
 */
 	return 0;
+=======
+>>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 }

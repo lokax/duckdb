@@ -14,22 +14,13 @@
 #include "duckdb.hpp"
 #include "duckdb_python/pybind_wrapper.hpp"
 #include "duckdb/common/unordered_map.hpp"
-#include <thread>
+#include "duckdb_python/python_import_cache.hpp"
+#include "duckdb_python/registered_py_object.hpp"
 
 namespace duckdb {
 
 struct DuckDBPyRelation;
 struct DuckDBPyResult;
-class RegisteredObject {
-public:
-	explicit RegisteredObject(py::object obj_p) : obj(move(obj_p)) {
-	}
-	virtual ~RegisteredObject() {
-		obj = py::none();
-	}
-
-	py::object obj;
-};
 
 class RegisteredArrow : public RegisteredObject {
 
@@ -42,27 +33,27 @@ public:
 struct DuckDBPyConnection {
 public:
 	shared_ptr<DuckDB> database;
-	shared_ptr<Connection> connection;
+	unique_ptr<Connection> connection;
 	unique_ptr<DuckDBPyResult> result;
 	vector<shared_ptr<DuckDBPyConnection>> cursors;
 	unordered_map<string, shared_ptr<Relation>> temporary_views;
-	std::thread::id thread_id = std::this_thread::get_id();
-	bool check_same_thread = true;
+	std::mutex py_connection_lock;
 
 public:
-	explicit DuckDBPyConnection(std::thread::id thread_id_p = std::this_thread::get_id()) : thread_id(thread_id_p) {
+	explicit DuckDBPyConnection() {
 	}
 	static void Initialize(py::handle &m);
 	static void Cleanup();
 
 	static shared_ptr<DuckDBPyConnection> Enter(DuckDBPyConnection &self,
 	                                            const string &database = ":memory:", bool read_only = false,
-	                                            const py::dict &config = py::dict(), bool check_same_thread = true);
+	                                            const py::dict &config = py::dict());
 
 	static bool Exit(DuckDBPyConnection &self, const py::object &exc_type, const py::object &exc,
 	                 const py::object &traceback);
 
 	static DuckDBPyConnection *DefaultConnection();
+	static PythonImportCache *ImportCache();
 
 	DuckDBPyConnection *ExecuteMany(const string &query, py::object params = py::list());
 
@@ -72,6 +63,10 @@ public:
 
 	DuckDBPyConnection *RegisterPythonObject(const string &name, py::object python_object,
 	                                         const idx_t rows_per_tuple = 100000);
+
+	void InstallExtension(const string &extension, bool force_install = false);
+
+	void LoadExtension(const string &extension);
 
 	unique_ptr<DuckDBPyRelation> FromQuery(const string &query, const string &alias = "query_relation");
 	unique_ptr<DuckDBPyRelation> RunQuery(const string &query, const string &alias = "query_relation");
@@ -127,15 +122,19 @@ public:
 
 	py::object FetchRecordBatchReader(const idx_t chunk_size) const;
 
-	static shared_ptr<DuckDBPyConnection> Connect(const string &database, bool read_only, const py::dict &config,
-	                                              bool check_same_thread);
+	static shared_ptr<DuckDBPyConnection> Connect(const string &database, bool read_only, const py::dict &config);
 
 	static vector<Value> TransformPythonParamList(py::handle params);
 
 	//! Default connection to an in-memory database
 	static shared_ptr<DuckDBPyConnection> default_connection;
+	//! Caches and provides an interface to get frequently used modules+subtypes
+	static shared_ptr<PythonImportCache> import_cache;
 
 	static bool IsAcceptedArrowObject(string &py_object_type);
+
+private:
+	unique_lock<std::mutex> AcquireConnectionLock();
 };
 
 } // namespace duckdb

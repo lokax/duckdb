@@ -30,6 +30,7 @@ AdaptiveFilter::AdaptiveFilter(TableFilterSet *table_filters)
 void AdaptiveFilter::AdaptRuntimeStatistics(double duration) {
 	iteration_count++;
 	runtime_sum += duration;
+    // 运行时间总和
 
 	if (!warmup) {
 		// the last swap was observed
@@ -54,7 +55,7 @@ void AdaptiveFilter::AdaptRuntimeStatistics(double duration) {
 			runtime_sum = 0.0;
 		} else if (!observe && iteration_count == execute_interval) {
 			// save old mean to evaluate swap
-			prev_mean = runtime_sum / iteration_count;
+			prev_mean = runtime_sum / iteration_count; // 保留旧的平均值
 
 			// get swap index and swap likeliness
 			std::uniform_int_distribution<int> distribution(1, right_random_border); // a <= i <= b

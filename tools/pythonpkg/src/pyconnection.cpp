@@ -1,6 +1,7 @@
 #include "duckdb_python/pyconnection.hpp"
 #include "duckdb_python/pyresult.hpp"
 #include "duckdb_python/pyrelation.hpp"
+#include "duckdb_python/python_conversion.hpp"
 #include "duckdb_python/pandas_scan.hpp"
 #include "duckdb_python/map.hpp"
 
@@ -13,10 +14,12 @@
 #include "duckdb/common/types.hpp"
 #include "duckdb/common/printer.hpp"
 #include "duckdb/main/config.hpp"
+#include "duckdb/main/extension_helper.hpp"
 #include "duckdb/parser/expression/constant_expression.hpp"
 #include "duckdb/parser/expression/function_expression.hpp"
 #include "duckdb/parser/tableref/table_function_ref.hpp"
 #include "duckdb/parser/parser.hpp"
+#include "duckdb_python/python_conversion.hpp"
 
 #include "datetime.h" // from Python
 
@@ -25,6 +28,7 @@
 namespace duckdb {
 
 shared_ptr<DuckDBPyConnection> DuckDBPyConnection::default_connection = nullptr;
+shared_ptr<PythonImportCache> DuckDBPyConnection::import_cache = nullptr;
 
 void DuckDBPyConnection::Initialize(py::handle &m) {
 	py::class_<DuckDBPyConnection, shared_ptr<DuckDBPyConnection>>(m, "DuckDBPyConnection", py::module_local())
@@ -92,12 +96,16 @@ void DuckDBPyConnection::Initialize(py::handle &m) {
 	    .def("get_table_names", &DuckDBPyConnection::GetTableNames, "Extract the required table names from a query",
 	         py::arg("query"))
 	    .def("__enter__", &DuckDBPyConnection::Enter, py::arg("database") = ":memory:", py::arg("read_only") = false,
-	         py::arg("config") = py::dict(), py::arg("check_same_thread") = true)
+	         py::arg("config") = py::dict())
 	    .def("__exit__", &DuckDBPyConnection::Exit, py::arg("exc_type"), py::arg("exc"), py::arg("traceback"))
 	    .def_property_readonly("description", &DuckDBPyConnection::GetDescription,
-	                           "Get result set attributes, mainly column names");
+	                           "Get result set attributes, mainly column names")
+	    .def("install_extension", &DuckDBPyConnection::InstallExtension, "Install an extension by name",
+	         py::arg("extension"), py::kw_only(), py::arg("force_install") = false)
+	    .def("load_extension", &DuckDBPyConnection::LoadExtension, "Load an installed extension", py::arg("extension"));
 
 	PyDateTime_IMPORT;
+	DuckDBPyConnection::ImportCache();
 }
 
 DuckDBPyConnection *DuckDBPyConnection::ExecuteMany(const string &query, py::object params) {
@@ -108,13 +116,7 @@ DuckDBPyConnection *DuckDBPyConnection::ExecuteMany(const string &query, py::obj
 static unique_ptr<QueryResult> CompletePendingQuery(PendingQueryResult &pending_query) {
 	PendingExecutionResult execution_result;
 	do {
-		{
-			py::gil_scoped_release release;
-			execution_result = pending_query.ExecuteTask();
-		}
-		if (PyErr_CheckSignals() != 0) {
-			throw std::runtime_error("Query interrupted");
-		}
+		execution_result = pending_query.ExecuteTask();
 	} while (execution_result == PendingExecutionResult::RESULT_NOT_READY);
 	if (execution_result == PendingExecutionResult::EXECUTION_ERROR) {
 		throw std::runtime_error(pending_query.error);
@@ -126,15 +128,12 @@ DuckDBPyConnection *DuckDBPyConnection::Execute(const string &query, py::object 
 	if (!connection) {
 		throw std::runtime_error("connection closed");
 	}
-	if (std::this_thread::get_id() != thread_id && check_same_thread) {
-		throw std::runtime_error("DuckDB objects created in a thread can only be used in that same thread. The object "
-		                         "was created in thread id " +
-		                         to_string(std::hash<std::thread::id> {}(thread_id)) + " and this is thread id " +
-		                         to_string(std::hash<std::thread::id> {}(std::this_thread::get_id())));
-	}
 	result = nullptr;
 	unique_ptr<PreparedStatement> prep;
 	{
+		py::gil_scoped_release release;
+		unique_lock<std::mutex> lock(py_connection_lock);
+
 		auto statements = connection->ExtractStatements(query);
 		if (statements.empty()) {
 			// no statements to execute
@@ -174,6 +173,8 @@ DuckDBPyConnection *DuckDBPyConnection::Execute(const string &query, py::object 
 		auto args = DuckDBPyConnection::TransformPythonParamList(single_query_params);
 		auto res = make_unique<DuckDBPyResult>();
 		{
+			py::gil_scoped_release release;
+			unique_lock<std::mutex> lock(py_connection_lock);
 			auto pending_query = prep->PendingQuery(args);
 			res->result = CompletePendingQuery(*pending_query);
 
@@ -450,11 +451,19 @@ void DuckDBPyConnection::Close() {
 	cursors.clear();
 }
 
+void DuckDBPyConnection::InstallExtension(const string &extension, bool force_install) {
+	ExtensionHelper::InstallExtension(*connection->context->db, extension, force_install);
+}
+
+void DuckDBPyConnection::LoadExtension(const string &extension) {
+	ExtensionHelper::LoadExternalExtension(*connection->context->db, extension);
+}
+
 // cursor() is stupid
 shared_ptr<DuckDBPyConnection> DuckDBPyConnection::Cursor() {
-	auto res = make_shared<DuckDBPyConnection>(thread_id);
+	auto res = make_shared<DuckDBPyConnection>();
 	res->database = database;
-	res->connection = connection;
+	res->connection = make_unique<Connection>(*res->database);
 	cursors.push_back(res);
 	return res;
 }
@@ -507,10 +516,7 @@ py::object DuckDBPyConnection::FetchRecordBatchReader(const idx_t chunk_size) co
 	}
 	return result->FetchRecordBatchReader(chunk_size);
 }
-static unique_ptr<TableFunctionRef>
-TryReplacement(py::dict &dict, py::str &table_name,
-               unordered_map<string, vector<shared_ptr<ExternalDependency>>> &registered_objects,
-               ClientConfig &config) {
+static unique_ptr<TableFunctionRef> TryReplacement(py::dict &dict, py::str &table_name, ClientConfig &config) {
 	if (!dict.contains(table_name)) {
 		// not present in the globals
 		return nullptr;
@@ -524,12 +530,8 @@ TryReplacement(py::dict &dict, py::str &table_name,
 		auto new_df = PandasScanFunction::PandasReplaceCopiedNames(entry);
 		children.push_back(make_unique<ConstantExpression>(Value::POINTER((uintptr_t)new_df.ptr())));
 		table_function->function = make_unique<FunctionExpression>("pandas_scan", move(children));
-		// keep a reference
-		vector<shared_ptr<ExternalDependency>> external_dependency;
-		auto object = make_shared<PythonDependencies>(make_unique<RegisteredObject>(entry),
-		                                              make_unique<RegisteredObject>(new_df));
-		external_dependency.push_back(move(object));
-		registered_objects[name] = move(external_dependency);
+		table_function->external_dependency = make_unique<PythonDependencies>(make_unique<RegisteredObject>(entry),
+		                                                                      make_unique<RegisteredObject>(new_df));
 	} else if (DuckDBPyConnection::IsAcceptedArrowObject(py_object_type)) {
 		string name = "arrow_" + GenerateRandomName();
 		auto stream_factory = make_unique<PythonTableArrowArrayStreamFactory>(entry.ptr(), config);
@@ -541,25 +543,17 @@ TryReplacement(py::dict &dict, py::str &table_name,
 		children.push_back(make_unique<ConstantExpression>(Value::POINTER((uintptr_t)stream_factory_get_schema)));
 		children.push_back(make_unique<ConstantExpression>(Value::UBIGINT(1000000)));
 		table_function->function = make_unique<FunctionExpression>("arrow_scan", move(children));
-		vector<shared_ptr<ExternalDependency>> external_dependency;
-		auto object = make_shared<PythonDependencies>(make_unique<RegisteredArrow>(move(stream_factory), entry));
-		external_dependency.push_back(move(object));
-		registered_objects[name] = move(external_dependency);
+		table_function->external_dependency =
+		    make_unique<PythonDependencies>(make_unique<RegisteredArrow>(move(stream_factory), entry));
 	} else {
 		throw std::runtime_error("Python Object " + py_object_type + " not suitable for replacement scans");
 	}
 	return table_function;
 }
 
-struct ReplacementRegisteredObjects : public ReplacementScanData {
-	unordered_map<string, vector<shared_ptr<ExternalDependency>>> *registered_objects;
-};
-
 static unique_ptr<TableFunctionRef> ScanReplacement(ClientContext &context, const string &table_name,
                                                     ReplacementScanData *data) {
 	py::gil_scoped_acquire acquire;
-	auto &registered_data = (ReplacementRegisteredObjects &)*data;
-	auto registered_objects = registered_data.registered_objects;
 	auto py_table_name = py::str(table_name);
 	// Here we do an exhaustive search on the frame lineage
 	auto current_frame = py::module::import("inspect").attr("currentframe")();
@@ -567,7 +561,7 @@ static unique_ptr<TableFunctionRef> ScanReplacement(ClientContext &context, cons
 		auto local_dict = py::reinterpret_borrow<py::dict>(current_frame.attr("f_locals"));
 		// search local dictionary
 		if (local_dict) {
-			auto result = TryReplacement(local_dict, py_table_name, *registered_objects, context.config);
+			auto result = TryReplacement(local_dict, py_table_name, context.config);
 			if (result) {
 				return result;
 			}
@@ -575,7 +569,7 @@ static unique_ptr<TableFunctionRef> ScanReplacement(ClientContext &context, cons
 		// search global dictionary
 		auto global_dict = py::reinterpret_borrow<py::dict>(current_frame.attr("f_globals"));
 		if (global_dict) {
-			auto result = TryReplacement(global_dict, py_table_name, *registered_objects, context.config);
+			auto result = TryReplacement(global_dict, py_table_name, context.config);
 			if (result) {
 				return result;
 			}
@@ -587,12 +581,13 @@ static unique_ptr<TableFunctionRef> ScanReplacement(ClientContext &context, cons
 }
 
 shared_ptr<DuckDBPyConnection> DuckDBPyConnection::Connect(const string &database, bool read_only,
-                                                           const py::dict &config_dict, bool check_same_thread) {
+                                                           const py::dict &config_dict) {
 	auto res = make_shared<DuckDBPyConnection>();
 
 	DBConfig config;
+
 	if (read_only) {
-		config.access_mode = AccessMode::READ_ONLY;
+		config.options.access_mode = AccessMode::READ_ONLY;
 	}
 	for (auto &kv : config_dict) {
 		string key = py::str(kv.first);
@@ -605,13 +600,15 @@ shared_ptr<DuckDBPyConnection> DuckDBPyConnection::Connect(const string &databas
 	}
 	res->database = make_unique<DuckDB>(database, &config);
 	res->connection = make_unique<Connection>(*res->database);
-	res->check_same_thread = check_same_thread;
-	if (config.enable_external_access) {
-		DBConfig &cur_config = res->database->instance->config;
-		auto extra_data = make_unique<ReplacementRegisteredObjects>();
-		extra_data->registered_objects = &res->connection->context->external_dependencies;
-		cur_config.replacement_scans.emplace_back(ScanReplacement, move(extra_data));
+	if (config.options.enable_external_access) {
+		res->database->instance->config.replacement_scans.emplace_back(ScanReplacement);
 	}
+
+	auto &db_config = res->database->instance->config;
+	db_config.AddExtensionOption("pandas_analyze_sample",
+	                             "The maximum number of rows to sample when analyzing a pandas object column.",
+	                             LogicalType::UBIGINT);
+	db_config.options.set_variables["pandas_analyze_sample"] = Value::UBIGINT(1000);
 
 	PandasScanFunction scan_fun;
 	CreateTableFunctionInfo scan_info(scan_fun);
@@ -630,77 +627,6 @@ shared_ptr<DuckDBPyConnection> DuckDBPyConnection::Connect(const string &databas
 	return res;
 }
 
-Value TransformPythonValue(py::handle ele) {
-	auto datetime_mod = py::module::import("datetime");
-	auto datetime_date = datetime_mod.attr("date");
-	auto datetime_datetime = datetime_mod.attr("datetime");
-	auto datetime_time = datetime_mod.attr("time");
-	auto decimal_mod = py::module::import("decimal");
-	auto decimal_decimal = decimal_mod.attr("Decimal");
-
-	if (ele.is_none()) {
-		return Value();
-	} else if (py::isinstance<py::bool_>(ele)) {
-		return Value::BOOLEAN(ele.cast<bool>());
-	} else if (py::isinstance<py::int_>(ele)) {
-		return Value::BIGINT(ele.cast<int64_t>());
-	} else if (py::isinstance<py::float_>(ele)) {
-		return Value::DOUBLE(ele.cast<double>());
-	} else if (py::isinstance(ele, decimal_decimal)) {
-		return py::str(ele).cast<string>();
-	} else if (py::isinstance(ele, datetime_datetime)) {
-		auto ptr = ele.ptr();
-		auto year = PyDateTime_GET_YEAR(ptr);
-		auto month = PyDateTime_GET_MONTH(ptr);
-		auto day = PyDateTime_GET_DAY(ptr);
-		auto hour = PyDateTime_DATE_GET_HOUR(ptr);
-		auto minute = PyDateTime_DATE_GET_MINUTE(ptr);
-		auto second = PyDateTime_DATE_GET_SECOND(ptr);
-		auto micros = PyDateTime_DATE_GET_MICROSECOND(ptr);
-		return Value::TIMESTAMP(year, month, day, hour, minute, second, micros);
-	} else if (py::isinstance(ele, datetime_time)) {
-		auto ptr = ele.ptr();
-		auto hour = PyDateTime_TIME_GET_HOUR(ptr);
-		auto minute = PyDateTime_TIME_GET_MINUTE(ptr);
-		auto second = PyDateTime_TIME_GET_SECOND(ptr);
-		auto micros = PyDateTime_TIME_GET_MICROSECOND(ptr);
-		return Value::TIME(hour, minute, second, micros);
-	} else if (py::isinstance(ele, datetime_date)) {
-		auto ptr = ele.ptr();
-		auto year = PyDateTime_GET_YEAR(ptr);
-		auto month = PyDateTime_GET_MONTH(ptr);
-		auto day = PyDateTime_GET_DAY(ptr);
-		return Value::DATE(year, month, day);
-	} else if (py::isinstance<py::str>(ele)) {
-		return ele.cast<string>();
-	} else if (py::isinstance<py::memoryview>(ele)) {
-		py::memoryview py_view = ele.cast<py::memoryview>();
-		PyObject *py_view_ptr = py_view.ptr();
-		Py_buffer *py_buf = PyMemoryView_GET_BUFFER(py_view_ptr);
-		return Value::BLOB(const_data_ptr_t(py_buf->buf), idx_t(py_buf->len));
-	} else if (py::isinstance<py::bytes>(ele)) {
-		const string &ele_string = ele.cast<string>();
-		return Value::BLOB(const_data_ptr_t(ele_string.data()), ele_string.size());
-	} else if (py::isinstance<py::list>(ele)) {
-		auto size = py::len(ele);
-
-		if (size == 0) {
-			return Value::EMPTYLIST(LogicalType::SQLNULL);
-		}
-
-		vector<Value> values;
-		values.reserve(size);
-
-		for (auto py_val : ele) {
-			values.emplace_back(TransformPythonValue(py_val));
-		}
-
-		return Value::LIST(values);
-	} else {
-		throw std::runtime_error("unknown param type " + py::str(ele.get_type()).cast<string>());
-	}
-}
-
 vector<Value> DuckDBPyConnection::TransformPythonParamList(py::handle params) {
 	vector<Value> args;
 	args.reserve(py::len(params));
@@ -714,15 +640,21 @@ vector<Value> DuckDBPyConnection::TransformPythonParamList(py::handle params) {
 DuckDBPyConnection *DuckDBPyConnection::DefaultConnection() {
 	if (!default_connection) {
 		py::dict config_dict;
-		default_connection = DuckDBPyConnection::Connect(":memory:", false, config_dict, true);
+		default_connection = DuckDBPyConnection::Connect(":memory:", false, config_dict);
 	}
 	return default_connection.get();
 }
 
+PythonImportCache *DuckDBPyConnection::ImportCache() {
+	if (!import_cache) {
+		import_cache = make_shared<PythonImportCache>();
+	}
+	return import_cache.get();
+}
+
 shared_ptr<DuckDBPyConnection> DuckDBPyConnection::Enter(DuckDBPyConnection &self, const string &database,
-                                                         bool read_only, const py::dict &config,
-                                                         bool check_same_thread) {
-	return self.Connect(database, read_only, config, check_same_thread);
+                                                         bool read_only, const py::dict &config) {
+	return self.Connect(database, read_only, config);
 }
 
 bool DuckDBPyConnection::Exit(DuckDBPyConnection &self, const py::object &exc_type, const py::object &exc,
@@ -733,6 +665,7 @@ bool DuckDBPyConnection::Exit(DuckDBPyConnection &self, const py::object &exc_ty
 
 void DuckDBPyConnection::Cleanup() {
 	default_connection.reset();
+	import_cache.reset();
 }
 
 bool DuckDBPyConnection::IsAcceptedArrowObject(string &py_object_type) {
@@ -741,6 +674,15 @@ bool DuckDBPyConnection::IsAcceptedArrowObject(string &py_object_type) {
 		return true;
 	}
 	return false;
+}
+unique_lock<std::mutex> DuckDBPyConnection::AcquireConnectionLock() {
+	// we first release the gil and then acquire the connection lock
+	unique_lock<std::mutex> lock(py_connection_lock, std::defer_lock);
+	{
+		py::gil_scoped_release release;
+		lock.lock();
+	}
+	return lock;
 }
 
 } // namespace duckdb

@@ -7,11 +7,16 @@
 #include "duckdb/planner/expression/bound_reference_expression.hpp"
 #include "duckdb/planner/expression/bound_subquery_expression.hpp"
 #include "duckdb/planner/expression_iterator.hpp"
-#include "duckdb/planner/binder.hpp"
 #include "duckdb/planner/operator/list.hpp"
 #include "duckdb/planner/subquery/flatten_dependent_join.hpp"
 #include "duckdb/function/aggregate/distributive_functions.hpp"
+<<<<<<< HEAD
 #include <iostream>
+=======
+#include "duckdb/planner/operator/logical_window.hpp"
+#include "duckdb/planner/expression/bound_window_expression.hpp"
+#include "duckdb/main/client_config.hpp"
+>>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 
 namespace duckdb {
 
@@ -55,10 +60,7 @@ static unique_ptr<Expression> PlanUncorrelatedSubquery(Binder &binder, BoundSubq
 
 		// we add it to the main query by adding a cross product
 		// FIXME: should use something else besides cross product as we always add only one scalar constant
-		auto cross_product = make_unique<LogicalCrossProduct>();
-		cross_product->AddChild(move(root));
-		cross_product->AddChild(move(plan));
-		root = move(cross_product);
+		root = LogicalCrossProduct::Create(move(root), move(plan));
 
 		// we replace the original subquery with a ColumnRefExpression referring to the result of the projection (either
 		// TRUE or FALSE)
@@ -96,10 +98,7 @@ static unique_ptr<Expression> PlanUncorrelatedSubquery(Binder &binder, BoundSubq
 		// FIXME: should use something else besides cross product as we always add only one scalar constant and cross
 		// product is not optimized for this.
 		D_ASSERT(root);
-		auto cross_product = make_unique<LogicalCrossProduct>();
-		cross_product->AddChild(move(root));
-		cross_product->AddChild(move(plan));
-		root = move(cross_product);
+		root = LogicalCrossProduct::Create(move(root), move(plan));
 
 		// we replace the original subquery with a BoundColumnRefExpression referring to the first result of the
 		// aggregation
@@ -135,8 +134,25 @@ static unique_ptr<Expression> PlanUncorrelatedSubquery(Binder &binder, BoundSubq
 }
 
 static unique_ptr<LogicalDelimJoin> CreateDuplicateEliminatedJoin(vector<CorrelatedColumnInfo> &correlated_columns,
-                                                                  JoinType join_type) {
+                                                                  JoinType join_type,
+                                                                  unique_ptr<LogicalOperator> original_plan,
+                                                                  bool perform_delim) {
 	auto delim_join = make_unique<LogicalDelimJoin>(join_type);
+	if (!perform_delim) {
+		// if we are not performing a delim join, we push a row_number() OVER() window operator on the LHS
+		// and perform all duplicate elimination on that row number instead
+		D_ASSERT(correlated_columns[0].type.id() == LogicalTypeId::BIGINT);
+		auto window = make_unique<LogicalWindow>(correlated_columns[0].binding.table_index);
+		auto row_number = make_unique<BoundWindowExpression>(ExpressionType::WINDOW_ROW_NUMBER, LogicalType::BIGINT,
+		                                                     nullptr, nullptr);
+		row_number->start = WindowBoundary::UNBOUNDED_PRECEDING;
+		row_number->end = WindowBoundary::CURRENT_ROW_ROWS;
+		row_number->alias = "delim_index";
+		window->expressions.push_back(move(row_number));
+		window->AddChild(move(original_plan));
+		original_plan = move(window);
+	}
+	delim_join->AddChild(move(original_plan));
 	for (idx_t i = 0; i < correlated_columns.size(); i++) {
 		auto &col = correlated_columns[i];
 		delim_join->duplicate_eliminated_columns.push_back(
@@ -147,8 +163,9 @@ static unique_ptr<LogicalDelimJoin> CreateDuplicateEliminatedJoin(vector<Correla
 }
 
 static void CreateDelimJoinConditions(LogicalDelimJoin &delim_join, vector<CorrelatedColumnInfo> &correlated_columns,
-                                      vector<ColumnBinding> bindings, idx_t base_offset) {
-	for (idx_t i = 0; i < correlated_columns.size(); i++) {
+                                      vector<ColumnBinding> bindings, idx_t base_offset, bool perform_delim) {
+	auto col_count = perform_delim ? correlated_columns.size() : 1;
+	for (idx_t i = 0; i < col_count; i++) {
 		auto &col = correlated_columns[i];
 		JoinCondition cond;
 		cond.left = make_unique<BoundColumnRefExpression>(col.name, col.type, col.binding);
@@ -158,11 +175,54 @@ static void CreateDelimJoinConditions(LogicalDelimJoin &delim_join, vector<Corre
 	}
 }
 
+static bool PerformDelimOnType(const LogicalType &type) {
+	if (type.InternalType() == PhysicalType::LIST) {
+		return false;
+	}
+	if (type.InternalType() == PhysicalType::STRUCT) {
+		for (auto &entry : StructType::GetChildTypes(type)) {
+			if (!PerformDelimOnType(entry.second)) {
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+static bool PerformDuplicateElimination(Binder &binder, vector<CorrelatedColumnInfo> &correlated_columns) {
+	if (!ClientConfig::GetConfig(binder.context).enable_optimizer) {
+		// if optimizations are disabled we always do a delim join
+		return true;
+	}
+	bool perform_delim = true;
+	for (auto &col : correlated_columns) {
+		if (!PerformDelimOnType(col.type)) {
+			perform_delim = false;
+			break;
+		}
+	}
+	if (perform_delim) {
+		return true;
+	}
+	auto binding = ColumnBinding(binder.GenerateTableIndex(), 0);
+	auto type = LogicalType::BIGINT;
+	auto name = "delim_index";
+	CorrelatedColumnInfo info(binding, type, name, 0);
+	correlated_columns.insert(correlated_columns.begin(), move(info));
+	return false;
+}
+
 static unique_ptr<Expression> PlanCorrelatedSubquery(Binder &binder, BoundSubqueryExpression &expr,
                                                      unique_ptr<LogicalOperator> &root,
                                                      unique_ptr<LogicalOperator> plan) {
 	auto &correlated_columns = expr.binder->correlated_columns;
+<<<<<<< HEAD
     std::cout << correlated_columns.size() << std::endl;
+=======
+	// FIXME: there should be a way of disabling decorrelation for ANY queries as well, but not for now...
+	bool perform_delim =
+	    expr.subquery_type == SubqueryType::ANY ? true : PerformDuplicateElimination(binder, correlated_columns);
+>>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 	D_ASSERT(expr.IsCorrelated());
 	// correlated subquery
 	// for a more in-depth explanation of this code, read the paper "Unnesting Arbitrary Subqueries"
@@ -179,19 +239,24 @@ static unique_ptr<Expression> PlanCorrelatedSubquery(Binder &binder, BoundSubque
 		// NULL values are equal in this join because we join on the correlated columns ONLY
 		// and e.g. in the query: SELECT (SELECT 42 FROM integers WHERE i1.i IS NULL LIMIT 1) FROM integers i1;
 		// the input value NULL will generate the value 42, and we need to join NULL on the LHS with NULL on the RHS
+<<<<<<< HEAD
 		auto delim_join = CreateDuplicateEliminatedJoin(correlated_columns, JoinType::SINGLE);
         // 为什么没有关联的时候直接笛卡尔积呢？这样不就出现了NULL值消失的情况了嘛？
         // 原因在于：
         // SINGLE JOIN拿外部查询数据(CHUCK_SCAN是没有去重，DELIM_SCAN是去重)和内部查询做连接，并且当匹配不到时会保留NULL值在右边
         // 同时SIGLE JOIN会使得只匹配一条数据(给标量子查询使用)
 
+=======
+>>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 		// the left side is the original plan
 		// this is the side that will be duplicate eliminated and pushed into the RHS
-		delim_join->AddChild(move(root));
+		auto delim_join =
+		    CreateDuplicateEliminatedJoin(correlated_columns, JoinType::SINGLE, move(root), perform_delim);
+
 		// the right side initially is a DEPENDENT join between the duplicate eliminated scan and the subquery
 		// HOWEVER: we do not explicitly create the dependent join
 		// instead, we eliminate the dependent join by pushing it down into the right side of the plan
-		FlattenDependentJoins flatten(binder, correlated_columns);
+		FlattenDependentJoins flatten(binder, correlated_columns, perform_delim);
 
 		// first we check which logical operators have correlated expressions in the first place
 		flatten.DetectCorrelatedExpressions(plan.get());
@@ -204,7 +269,7 @@ static unique_ptr<Expression> PlanCorrelatedSubquery(Binder &binder, BoundSubque
 		auto plan_columns = dependent_join->GetColumnBindings();
 
 		// now create the join conditions
-		CreateDelimJoinConditions(*delim_join, correlated_columns, plan_columns, flatten.delim_offset);
+		CreateDelimJoinConditions(*delim_join, correlated_columns, plan_columns, flatten.delim_offset, perform_delim);
 		delim_join->AddChild(move(dependent_join));
 		root = move(delim_join);
 		// finally push the BoundColumnRefExpression referring to the data element returned by the join
@@ -215,12 +280,15 @@ static unique_ptr<Expression> PlanCorrelatedSubquery(Binder &binder, BoundSubque
 		// correlated EXISTS query
 		// this query is similar to the correlated SCALAR query, except we use a MARK join here
 		idx_t mark_index = binder.GenerateTableIndex();
-		auto delim_join = CreateDuplicateEliminatedJoin(correlated_columns, JoinType::MARK);
+		auto delim_join = CreateDuplicateEliminatedJoin(correlated_columns, JoinType::MARK, move(root), perform_delim);
 		delim_join->mark_index = mark_index;
+<<<<<<< HEAD
 		// LHS
 		delim_join->AddChild(move(root)); // 比如说from table
+=======
+>>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 		// RHS
-		FlattenDependentJoins flatten(binder, correlated_columns);
+		FlattenDependentJoins flatten(binder, correlated_columns, perform_delim);
 		flatten.DetectCorrelatedExpressions(plan.get());
 		auto dependent_join = flatten.PushDownDependentJoin(move(plan));
 
@@ -228,7 +296,7 @@ static unique_ptr<Expression> PlanCorrelatedSubquery(Binder &binder, BoundSubque
 		auto plan_columns = dependent_join->GetColumnBindings();
 
 		// now we create the join conditions between the dependent join and the original table
-		CreateDelimJoinConditions(*delim_join, correlated_columns, plan_columns, flatten.delim_offset);
+		CreateDelimJoinConditions(*delim_join, correlated_columns, plan_columns, flatten.delim_offset, perform_delim);
 		delim_join->AddChild(move(dependent_join));
 		root = move(delim_join);
 		// finally push the BoundColumnRefExpression referring to the marker
@@ -244,10 +312,8 @@ static unique_ptr<Expression> PlanCorrelatedSubquery(Binder &binder, BoundSubque
 		// as the MARK join has one extra join condition (the original condition, of the ANY expression, e.g.
 		// [i=ANY(...)])
 		idx_t mark_index = binder.GenerateTableIndex();
-		auto delim_join = CreateDuplicateEliminatedJoin(correlated_columns, JoinType::MARK);
+		auto delim_join = CreateDuplicateEliminatedJoin(correlated_columns, JoinType::MARK, move(root), perform_delim);
 		delim_join->mark_index = mark_index;
-		// LHS
-		delim_join->AddChild(move(root));
 		// RHS
 		FlattenDependentJoins flatten(binder, correlated_columns, true);
 		flatten.DetectCorrelatedExpressions(plan.get());
@@ -257,7 +323,7 @@ static unique_ptr<Expression> PlanCorrelatedSubquery(Binder &binder, BoundSubque
 		auto plan_columns = dependent_join->GetColumnBindings();
 
 		// now we create the join conditions between the dependent join and the original table
-		CreateDelimJoinConditions(*delim_join, correlated_columns, plan_columns, flatten.delim_offset);
+		CreateDelimJoinConditions(*delim_join, correlated_columns, plan_columns, flatten.delim_offset, perform_delim);
 		// add the actual condition based on the ANY/ALL predicate
 		JoinCondition compare_cond;
 		compare_cond.left = move(expr.child);
@@ -281,9 +347,11 @@ public:
 	void VisitOperator(LogicalOperator &op) override {
 		if (!op.children.empty()) {
 			root = move(op.children[0]);
+			D_ASSERT(root);
 			VisitOperatorExpressions(op);
 			op.children[0] = move(root);
 			for (idx_t i = 0; i < op.children.size(); i++) {
+				D_ASSERT(op.children[i]);
 				VisitOperator(*op.children[i]);
 			}
 		}
