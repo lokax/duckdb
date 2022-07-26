@@ -87,7 +87,7 @@ unique_ptr<LocalSinkState> PhysicalDelimJoin::GetLocalSinkState(ExecutionContext
 SinkResultType PhysicalDelimJoin::Sink(ExecutionContext &context, GlobalSinkState &state_p, LocalSinkState &lstate_p,
                                        DataChunk &input) const {
 	auto &lstate = (DelimJoinLocalState &)lstate_p;
-	lstate.lhs_data.Append(input); 
+	lstate.lhs_data.Append(input);  // 完整的数据
 	distinct->Sink(context, *distinct->sink_state, *lstate.distinct_state, input);
 	return SinkResultType::NEED_MORE_INPUT;
 }
@@ -119,8 +119,8 @@ void PhysicalDelimJoin::BuildPipelines(Executor &executor, Pipeline &current, Pi
 	sink_state.reset();
 
 	// duplicate eliminated join
-	auto pipeline = make_shared<Pipeline>(executor);
-	state.SetPipelineSink(*pipeline, this);
+	auto pipeline = make_shared<Pipeline>(executor); // 创建pipeline
+	state.SetPipelineSink(*pipeline, this); // 该算子是当前pipeline的sink
 	current.AddDependency(pipeline);
 
 	// recurse into the pipeline child
