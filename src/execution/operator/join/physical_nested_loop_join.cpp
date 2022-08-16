@@ -319,6 +319,7 @@ void PhysicalJoin::ConstructLeftJoinResult(DataChunk &left, DataChunk &result, b
 	}
 	if (remaining_count > 0) {
 		result.Slice(left, remaining_sel, remaining_count);
+        // 右表的数据设置成NULL
 		for (idx_t idx = left.ColumnCount(); idx < result.ColumnCount(); idx++) {
 			result.data[idx].SetVectorType(VectorType::CONSTANT_VECTOR);
 			ConstantVector::SetNull(result.data[idx], true);

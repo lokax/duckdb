@@ -20,6 +20,7 @@ PhysicalRangeJoin::LocalSortedTable::LocalSortedTable(Allocator &allocator, cons
     : op(op), executor(allocator), has_null(0), count(0) {
 	// Initialize order clause expression executor and key DataChunk
 	vector<LogicalType> types;
+    // 遍历每一个condition
 	for (const auto &cond : op.conditions) {
 		const auto &expr = child ? cond.right : cond.left;
 		executor.AddExpression(*expr);
@@ -37,7 +38,7 @@ void PhysicalRangeJoin::LocalSortedTable::Sink(DataChunk &input, GlobalSortState
 
 	// Obtain sorting columns
 	keys.Reset();
-	executor.Execute(input, keys);
+	executor.Execute(input, keys); // 计算keys
 
 	// Count the NULLs so we can exclude them later
 	has_null += MergeNulls(op.conditions);
@@ -262,7 +263,7 @@ idx_t PhysicalRangeJoin::LocalSortedTable::MergeNulls(const vector<JoinCondition
 		}
 		return count - pvalidity.CountValid(count);
 	} else {
-		return count - VectorOperations::CountNotNull(primary, count);
+		return count - VectorOperations::CountNotNull(primary, count); // 返回NULL的数量
 	}
 }
 
@@ -317,6 +318,7 @@ void PhysicalRangeJoin::SliceSortedPayload(DataChunk &payload, GlobalSortState &
 	}
 }
 
+// 后续的condition使用表达式计算来做
 idx_t PhysicalRangeJoin::SelectJoinTail(const ExpressionType &condition, Vector &left, Vector &right,
                                         const SelectionVector *sel, idx_t count, SelectionVector *true_sel) {
 	switch (condition) {

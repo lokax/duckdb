@@ -136,6 +136,7 @@ public:
 void PhysicalHashAggregate::SetMultiScan(GlobalSinkState &state) {
 	auto &gstate = (HashAggregateGlobalState &)state;
 	for (auto &radix_state : gstate.radix_states) {
+        // MultiScan？看一看
 		RadixPartitionedHashTable::SetMultiScan(*radix_state);
 	}
 }

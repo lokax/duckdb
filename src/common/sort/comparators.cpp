@@ -33,13 +33,16 @@ int Comparators::CompareTuple(const SBScanState &left, const SBScanState &right,
 	data_ptr_t l_ptr_offset = l_ptr;
 	data_ptr_t r_ptr_offset = r_ptr;
 	for (idx_t col_idx = 0; col_idx < sort_layout.column_count; col_idx++) {
+        // 比较col_idx这一列
 		comp_res = FastMemcmp(l_ptr_offset, r_ptr_offset, sort_layout.column_sizes[col_idx]);
 		if (comp_res == 0 && !sort_layout.constant_size[col_idx]) {
 			comp_res = BreakBlobTie(col_idx, left, right, sort_layout, external_sort);
 		}
+        // 不是0，直接跳出
 		if (comp_res != 0) {
 			break;
 		}
+        // 移动指针到下一列
 		l_ptr_offset += sort_layout.column_sizes[col_idx];
 		r_ptr_offset += sort_layout.column_sizes[col_idx];
 	}

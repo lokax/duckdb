@@ -148,7 +148,7 @@ void LocalSortState::Initialize(GlobalSortState &global_sort_state, BufferManage
 	auto payload_row_width = payload_layout->GetRowWidth();
 	payload_data =
 	    make_unique<RowDataCollection>(*buffer_manager, EntriesPerBlock(payload_row_width), payload_row_width);
-	payload_heap = make_unique<RowDataCollection>(*buffer_manager, (idx_t)Storage::BLOCK_SIZE, 1, true);
+	payload_heap = make_unique<RowDataCollection>(*buffer_manager, (idx_t)Storage::BLOCK_SIZE, 1, true); // 都是Pin住的数据
 	// Init done
 	initialized = true;
 }
@@ -224,7 +224,7 @@ void LocalSortState::Sort(GlobalSortState &global_sort_state, bool reorder_heap)
 	auto payload_block = ConcatenateBlocks(*payload_data);
 	sb.payload_data->data_blocks.push_back(move(payload_block));
 	// Now perform the actual sort
-	SortInMemory();
+	SortInMemory(); // radix_sorting_data里面是SortLayout，而Blob等应该是row layout
 	// Re-order before the merge sort
 	ReOrder(global_sort_state, reorder_heap);
 }
@@ -399,7 +399,8 @@ void GlobalSortState::InitializeMergeRound() {
 	D_ASSERT(sorted_blocks_temp.empty());
 	// If we reverse this list, the blocks that were merged last will be merged first in the next round
 	// These are still in memory, therefore this reduces the amount of read/write to disk!
-	std::reverse(sorted_blocks.begin(), sorted_blocks.end());
+	// 人才
+    std::reverse(sorted_blocks.begin(), sorted_blocks.end());
 	// Uneven number of blocks - keep one on the side
 	if (sorted_blocks.size() % 2 == 1) {
 		odd_one_out = move(sorted_blocks.back());

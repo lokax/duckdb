@@ -15,7 +15,7 @@ unique_ptr<PhysicalOperator> PhysicalPlanGenerator::CreateDistinctOn(unique_ptr<
 
 	auto &types = child->GetTypes();
 	vector<unique_ptr<Expression>> groups, aggregates, projections;
-	idx_t group_count = distinct_targets.size();
+	idx_t group_count = distinct_targets.size(); // 分组的数量就是我们要distinct的元素的数量
 	unordered_map<idx_t, idx_t> group_by_references;
 	vector<LogicalType> aggregate_types;
 	// creates one group per distinct_target

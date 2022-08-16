@@ -8,12 +8,12 @@ namespace duckdb {
 
 unique_ptr<LogicalOperator> FilterPullup::PullupFilter(unique_ptr<LogicalOperator> op) {
 	D_ASSERT(op->type == LogicalOperatorType::LOGICAL_FILTER);
-
+    // 如果能够拉上来
 	if (can_pullup) {
 		unique_ptr<LogicalOperator> child = move(op->children[0]);
-		child = Rewrite(move(child));
+		child = Rewrite(move(child)); // 先递归处理孩子
 		// moving filter's expressions
-		for (idx_t i = 0; i < op->expressions.size(); ++i) {
+		for (idx_t i = 0; i < op->expressions.size(); ++i) { // 保存表达式
 			filters_expr_pullup.push_back(move(op->expressions[i]));
 		}
 		return child; // 把当前的filter算子去除

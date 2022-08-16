@@ -159,14 +159,14 @@ void JoinHashTable::Build(DataChunk &keys, DataChunk &payload) {
 		// for the correlated mark join we need to keep track of COUNT(*) and COUNT(COLUMN) for each of the correlated
 		// columns push into the aggregate hash table
 		D_ASSERT(info.correlated_counts);
-		info.group_chunk.SetCardinality(keys);
+		info.group_chunk.SetCardinality(keys); // 设置基数
 		for (idx_t i = 0; i < info.correlated_types.size(); i++) {
-			info.group_chunk.data[i].Reference(keys.data[i]);
+			info.group_chunk.data[i].Reference(keys.data[i]); // 直接引用
 		}
 		if (info.correlated_payload.data.empty()) {
 			vector<LogicalType> types;
 			types.push_back(keys.data[info.correlated_types.size()].GetType());
-			info.correlated_payload.InitializeEmpty(types);
+			info.correlated_payload.InitializeEmpty(types); // 初始化
 		}
 		info.correlated_payload.SetCardinality(keys);
 		info.correlated_payload.data[0].Reference(keys.data[info.correlated_types.size()]);
@@ -179,7 +179,7 @@ void JoinHashTable::Build(DataChunk &keys, DataChunk &payload) {
 	SelectionVector sel(STANDARD_VECTOR_SIZE);
 	idx_t added_count = PrepareKeys(keys, key_data, current_sel, sel, true);
 	if (added_count < keys.size()) {
-		has_null = true;
+		has_null = true; // 表面存在空值
 	}
 	if (added_count == 0) {
 		return;
@@ -215,6 +215,7 @@ void JoinHashTable::Build(DataChunk &keys, DataChunk &payload) {
 		payload.data[i].ToUnifiedFormat(payload.size(), pdata);
 		source_data.emplace_back(move(pdata));
 	}
+    // 多引用一个found列
 	if (IsRightOuterJoin(join_type)) {
 		// for FULL/RIGHT OUTER joins initialize the "found" boolean to false
 		source_chunk.data[source_data.size()].Reference(vfound);
@@ -539,7 +540,7 @@ void ScanStructure::NextAntiJoin(DataChunk &keys, DataChunk &left, DataChunk &re
 void ScanStructure::ConstructMarkJoinResult(DataChunk &join_keys, DataChunk &child, DataChunk &result) {
 	// for the initial set of columns we just reference the left side
 	result.SetCardinality(child); // 设置个数
-	for (idx_t i = 0; i < child.ColumnCount(); i++) {
+	for (idx_t i = 0; i < child.ColumnCount(); i++) { // child是左孩子
 		result.data[i].Reference(child.data[i]); // 直接引用
 	}
 	auto &mark_vector = result.data.back();
@@ -555,7 +556,7 @@ void ScanStructure::ConstructMarkJoinResult(DataChunk &join_keys, DataChunk &chi
 		}
 		UnifiedVectorFormat jdata;
 		join_keys.data[col_idx].ToUnifiedFormat(join_keys.size(), jdata);
-		if (!jdata.validity.AllValid()) {
+		if (!jdata.validity.AllValid()) { // 如果这一列中的数据，不是全部都有效的话
 			for (idx_t i = 0; i < join_keys.size(); i++) {
 				auto jidx = jdata.sel->get_index(i);
 				mask.Set(i, jdata.validity.RowIsValidUnsafe(jidx));

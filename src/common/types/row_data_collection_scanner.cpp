@@ -104,7 +104,7 @@ void RowDataCollectionScanner::ScanState::PinData() {
 	D_ASSERT(block_idx < rows.blocks.size());
 	auto &data_block = rows.blocks[block_idx];
 	if (!data_handle.IsValid() || data_handle.GetBlockId() != data_block.block->BlockId()) {
-		data_handle = rows.buffer_manager.Pin(data_block.block);
+		data_handle = rows.buffer_manager.Pin(data_block.block); // Pin住data_handle
 	}
 	if (scanner.layout.AllConstant()) {
 		return;

@@ -446,8 +446,8 @@ static idx_t MergeJoinComplexBlocks(BlockMergeInfo &l, BlockMergeInfo &r, const 
 	SBScanState lread(l.state.buffer_manager, l.state);
 	lread.sb = l.state.sorted_blocks[0].get();
 	D_ASSERT(lread.sb->radix_sorting_data.size() == 1);
-	MergeJoinPinSortingBlock(lread, l.block_idx);
-	auto l_start = MergeJoinRadixPtr(lread, 0);
+	MergeJoinPinSortingBlock(lread, l.block_idx); // Pin住对应的block
+	auto l_start = MergeJoinRadixPtr(lread, 0); // 拿到裸指针
 	auto l_ptr = MergeJoinRadixPtr(lread, l.entry_idx);
 
 	D_ASSERT(r.state.sorted_blocks.size() == 1);
@@ -458,8 +458,8 @@ static idx_t MergeJoinComplexBlocks(BlockMergeInfo &l, BlockMergeInfo &r, const 
 		return 0;
 	}
 
-	MergeJoinPinSortingBlock(rread, r.block_idx);
-	auto r_ptr = MergeJoinRadixPtr(rread, r.entry_idx);
+	MergeJoinPinSortingBlock(rread, r.block_idx); // pin住对应的block
+	auto r_ptr = MergeJoinRadixPtr(rread, r.entry_idx); // 拿到裸指针
 
 	const auto cmp_size = l.state.sort_layout.comparison_size;
 	const auto entry_size = l.state.sort_layout.entry_size;
@@ -469,7 +469,7 @@ static idx_t MergeJoinComplexBlocks(BlockMergeInfo &l, BlockMergeInfo &r, const 
 		if (l.entry_idx < l.not_null) {
 			int comp_res;
 			if (all_constant) {
-				comp_res = FastMemcmp(l_ptr, r_ptr, cmp_size);
+				comp_res = FastMemcmp(l_ptr, r_ptr, cmp_size); // 快速比较
 			} else {
 				lread.entry_idx = l.entry_idx;
 				rread.entry_idx = r.entry_idx;
@@ -515,9 +515,9 @@ OperatorResultType PhysicalPiecewiseMergeJoin::ResolveComplexJoin(ExecutionConte
 	const auto tail_cols = conditions.size() - 1;
 	do {
 		if (state.first_fetch) {
-			state.ResolveJoinKeys(input);
+			state.ResolveJoinKeys(input); // 对输入进行排序，小数据量
 
-			state.right_chunk_index = 0;
+			state.right_chunk_index = 0; // 右表索引设置成0，重新扫描右表
 			state.right_base = 0;
 			state.left_position = 0;
 			state.right_position = 0;
@@ -533,13 +533,16 @@ OperatorResultType PhysicalPiecewiseMergeJoin::ResolveComplexJoin(ExecutionConte
 			}
 			state.first_fetch = true;
 			state.finished = false;
-			return OperatorResultType::NEED_MORE_INPUT;
+			return OperatorResultType::NEED_MORE_INPUT; // 需要更多的输入进来
 		}
 
 		auto &lhs_table = *state.lhs_local_table;
+        // 非NULL数据的数量
 		const auto lhs_not_null = lhs_table.count - lhs_table.has_null;
+        // block index是0,难度真的只有一个radix sort data block吗？
 		BlockMergeInfo left_info(*state.lhs_global_state, 0, state.left_position, lhs_not_null);
 
+        // 拿出右表的radix sorting data
 		const auto &rblock = rsorted.radix_sorting_data[state.right_chunk_index];
 		const auto rhs_not_null =
 		    SortedBlockNotNull(state.right_base, rblock.count, gstate.table->count - gstate.table->has_null);
@@ -555,11 +558,13 @@ OperatorResultType PhysicalPiecewiseMergeJoin::ResolveComplexJoin(ExecutionConte
 			state.right_base += rsorted.radix_sorting_data[state.right_chunk_index].count;
 			state.right_chunk_index++;
 			if (state.right_chunk_index >= rsorted.radix_sorting_data.size()) {
+                // 右表已经消耗完了
 				state.finished = true;
 			}
 		} else {
 			// found matches: extract them
 			chunk.Reset();
+            // 左表的列
 			for (idx_t c = 0; c < state.lhs_payload.ColumnCount(); ++c) {
 				chunk.data[c].Slice(state.lhs_payload.data[c], left_info.result, result_count);
 			}

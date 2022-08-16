@@ -69,7 +69,7 @@ static void SortTiedBlobs(BufferManager &buffer_manager, SortedBlock &sb, bool *
 	const data_ptr_t blob_ptr = blob_handle.Ptr();
 
 	for (idx_t i = 0; i < count; i++) {
-		if (!ties[i]) {
+		if (!ties[i]) { // 当前i位置和i + 1位置不相等
 			continue;
 		}
 		idx_t j;
@@ -132,17 +132,18 @@ void RadixSortLSD(BufferManager &buffer_manager, const data_ptr_t &dataptr, cons
 			max_count = MaxValue<idx_t>(max_count, counts[val]);
 			counts[val] = counts[val] + counts[val - 1];
 		}
-		if (max_count == count) {
+		if (max_count == count) { // 说明所有数据都在一个桶内
 			continue;
 		}
 		// Re-order the data in temporary array
 		data_ptr_t row_ptr = source_ptr + (count - 1) * row_width;
 		for (idx_t i = 0; i < count; i++) {
 			idx_t &radix_offset = --counts[*(row_ptr + offset)];
+            // 拷贝整个数据吗
 			FastMemcpy(target_ptr + radix_offset * row_width, row_ptr, row_width);
 			row_ptr -= row_width;
 		}
-		swap = !swap;
+		swap = !swap; // 调转一下，有点意思
 	}
 	// Move data back to original buffer (if it was swapped)
 	if (swap) {
@@ -172,7 +173,7 @@ inline void InsertionSort(const data_ptr_t orig_ptr, const data_ptr_t temp_ptr, 
 			FastMemcpy(source_ptr + j * row_width, val, row_width);
 		}
 	}
-	if (swap) {
+	if (swap) { // 拷贝回target_ptr
 		memcpy(target_ptr, source_ptr, count * row_width);
 	}
 }
@@ -288,6 +289,7 @@ void LocalSortState::SortInMemory() {
 	idx_t col_offset = 0;
 	unique_ptr<bool[]> ties_ptr;
 	bool *ties = nullptr;
+    // 遍历每一列
 	for (idx_t i = 0; i < sort_layout->column_count; i++) {
 		sorting_size += sort_layout->column_sizes[i];
 		if (sort_layout->constant_size[i] && i < sort_layout->column_count - 1) {
@@ -295,12 +297,13 @@ void LocalSortState::SortInMemory() {
 			continue;
 		}
 
+        // ties是空，代表是第一次排序
 		if (!ties) {
 			// This is the first sort
 			RadixSort(*buffer_manager, dataptr, count, col_offset, sorting_size, *sort_layout);
-			ties_ptr = unique_ptr<bool[]>(new bool[count]);
+			ties_ptr = unique_ptr<bool[]>(new bool[count]); // 创建ties
 			ties = ties_ptr.get();
-			std::fill_n(ties, count - 1, true);
+			std::fill_n(ties, count - 1, true); // count是数据个数
 			ties[count - 1] = false;
 		} else {
 			// For subsequent sorts, we only have to subsort the tied tuples

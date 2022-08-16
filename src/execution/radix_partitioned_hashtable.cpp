@@ -414,6 +414,7 @@ void RadixPartitionedHashTable::GetData(ExecutionContext &context, DataChunk &ch
 		if (elements_found > 0) {
 			break;
 		}
+        // TODO(lokax): false的话就可以释放内存了的意思吧
 		if (!gstate.multi_scan) {
 			gstate.finalized_hts[state.ht_index].reset(); // 不需要扫描多次，将ptr设置成null
 		}

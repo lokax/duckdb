@@ -76,32 +76,32 @@ public:
 unique_ptr<GlobalSinkState> PhysicalHashJoin::GetGlobalSinkState(ClientContext &context) const {
 	auto state = make_unique<HashJoinGlobalState>();
 	state->hash_table =
-	    make_unique<JoinHashTable>(BufferManager::GetBufferManager(context), conditions, build_types, join_type);
+	    make_unique<JoinHashTable>(BufferManager::GetBufferManager(context), conditions, build_types, join_type); // 创建HashTable
 	if (!delim_types.empty() && join_type == JoinType::MARK) {
 		// correlated MARK join
 		if (delim_types.size() + 1 == conditions.size()) {
 			// the correlated MARK join has one more condition than the amount of correlated columns
 			// this is the case in a correlated ANY() expression
 			// in this case we need to keep track of additional entries, namely:
-			// - (1) the total amount of elements per group
-			// - (2) the amount of non-null elements per group
+			// - (1) the total amount of elements per group // 每个组的元素数量？
+			// - (2) the amount of non-null elements per group // 每个组的非空元素的数量？
 			// we need these to correctly deal with the cases of either:
 			// - (1) the group being empty [in which case the result is always false, even if the comparison is NULL]
 			// - (2) the group containing a NULL value [in which case FALSE becomes NULL]
 			auto &info = state->hash_table->correlated_mark_join_info;
 
-			vector<LogicalType> payload_types;
-			vector<BoundAggregateExpression *> correlated_aggregates;
+			vector<LogicalType> payload_types; // 两个聚合的返回类型
+			vector<BoundAggregateExpression *> correlated_aggregates; // 聚合函数表达式
 			unique_ptr<BoundAggregateExpression> aggr;
 
 			// jury-rigging the GroupedAggregateHashTable
 			// we need a count_star and a count to get counts with and without NULLs
-			aggr = AggregateFunction::BindAggregateFunction(context, CountStarFun::GetFunction(), {}, nullptr, false);
+			aggr = AggregateFunction::BindAggregateFunction(context, CountStarFun::GetFunction(), {}, nullptr, false); // 获得CountStar的聚合函数
 			correlated_aggregates.push_back(&*aggr);
 			payload_types.push_back(aggr->return_type);
-			info.correlated_aggregates.push_back(move(aggr));
+			info.correlated_aggregates.push_back(move(aggr)); // Move这个聚合函数进去
 
-			auto count_fun = CountFun::GetFunction();
+			auto count_fun = CountFun::GetFunction(); // 获取Count函数
 			vector<unique_ptr<Expression>> children;
 			// this is a dummy but we need it to make the hash table understand whats going on
 			children.push_back(make_unique_base<Expression, BoundReferenceExpression>(count_fun.return_type, 0));
@@ -114,8 +114,8 @@ unique_ptr<GlobalSinkState> PhysicalHashJoin::GetGlobalSinkState(ClientContext &
 			info.correlated_counts = make_unique<GroupedAggregateHashTable>(
 			    allocator, BufferManager::GetBufferManager(context), delim_types, payload_types, correlated_aggregates);
 			info.correlated_types = delim_types;
-			info.group_chunk.Initialize(allocator, delim_types);
-			info.result_chunk.Initialize(allocator, payload_types);
+			info.group_chunk.Initialize(allocator, delim_types); // 去重列
+			info.result_chunk.Initialize(allocator, payload_types); // 两个count函数的type
 		}
 	}
 	// for perfect hash join
@@ -249,8 +249,9 @@ OperatorResultType PhysicalHashJoin::Execute(ExecutionContext &context, DataChun
 		return OperatorResultType::NEED_MORE_INPUT;
 	}
 
+    // 哈希表中没有数据
 	// probe the HT
-	if (sink.hash_table->Count() == 0) { // 像left join需要做这个动作
+	if (sink.hash_table->Count() == 0) { // 像left join需要做这个动作, mark Join也需要...
 		ConstructEmptyJoinResult(sink.hash_table->join_type, sink.hash_table->has_null, input, chunk);
 		return OperatorResultType::NEED_MORE_INPUT;
 	}

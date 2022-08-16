@@ -55,13 +55,13 @@ void PhysicalComparisonJoin::ConstructEmptyJoinResult(JoinType join_type, bool h
 		// if the HT has no NULL values (i.e. empty result set), return a vector that has false for every input
 		// entry if the HT has NULL values (i.e. result set had values, but all were NULL), return a vector that
 		// has NULL for every input entry
-		if (!has_null) {
+		if (!has_null) { // 当前哈希表没有找到匹配的数据，但同时也没有null值，这时候结果是false
 			auto bool_result = FlatVector::GetData<bool>(result_vector);
 			for (idx_t i = 0; i < result.size(); i++) {
 				bool_result[i] = false;
 			}
 		} else {
-			FlatVector::Validity(result_vector).SetAllInvalid(result.size());
+			FlatVector::Validity(result_vector).SetAllInvalid(result.size()); // 结果是NULL
 		}
 	} else if (join_type == JoinType::LEFT || join_type == JoinType::OUTER || join_type == JoinType::SINGLE) {
 		// LEFT/FULL OUTER/SINGLE join and build side is empty

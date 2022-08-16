@@ -27,14 +27,14 @@ static void ReplaceExpressionBinding(vector<unique_ptr<Expression>> &proj_expres
 			auto proj_expr = proj_expressions[proj_idx].get();
 			if (proj_expr->type == ExpressionType::BOUND_COLUMN_REF) {
 				if (colref.Equals(proj_expr)) {
-					colref.binding.table_index = proj_table_idx;
+					colref.binding.table_index = proj_table_idx; // 重写filter表达式的绑定
 					colref.binding.column_index = proj_idx;
 					found_proj_col = true;
 					break;
 				}
 			}
 		}
-		if (!found_proj_col) {
+		if (!found_proj_col) {  // 创建新的表达式
 			// Project a new column
 			auto new_colref = colref.Copy();
 			colref.binding.table_index = proj_table_idx;

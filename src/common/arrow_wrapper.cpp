@@ -11,6 +11,7 @@
 namespace duckdb {
 
 ArrowSchemaWrapper::~ArrowSchemaWrapper() {
+    // 这里递归地进行Release
 	if (arrow_schema.release) {
 		for (int64_t child_idx = 0; child_idx < arrow_schema.n_children; child_idx++) {
 			auto &child = *arrow_schema.children[child_idx];
@@ -24,6 +25,7 @@ ArrowSchemaWrapper::~ArrowSchemaWrapper() {
 }
 
 ArrowArrayWrapper::~ArrowArrayWrapper() {
+    // 这里递归地进行Release
 	if (arrow_array.release) {
 		for (int64_t child_idx = 0; child_idx < arrow_array.n_children; child_idx++) {
 			auto &child = *arrow_array.children[child_idx];

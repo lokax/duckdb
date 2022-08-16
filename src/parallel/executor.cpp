@@ -210,7 +210,7 @@ void Executor::ExtractPipelines(shared_ptr<Pipeline> &pipeline, vector<shared_pt
 	}
 	auto child_entry = child_pipelines.find(pipeline_ptr);
 	if (child_entry != child_pipelines.end()) {
-		for (auto &entry : child_entry->second) {
+		for (auto &entry : child_entry->second) { // 是不是反了
 			ExtractPipelines(entry, result);
 		}
 		child_pipelines.erase(pipeline_ptr);
@@ -287,7 +287,7 @@ void Executor::InitializeInternal(PhysicalOperator *plan) {
 		this->total_pipelines = pipelines.size();
 
 		root_pipeline_idx = 0;
-		ExtractPipelines(root_pipeline, root_pipelines);
+		ExtractPipelines(root_pipeline, root_pipelines); // 提取pipeline
 
 		VerifyPipelines();
 
@@ -338,7 +338,7 @@ void Executor::WorkOnTasks() {
 
 	unique_ptr<Task> task;
 	while (scheduler.GetTaskFromProducer(*producer, task)) {
-		task->Execute(TaskExecutionMode::PROCESS_ALL);
+		task->Execute(TaskExecutionMode::PROCESS_ALL); // 把剩余的任务全部处理完
 		task.reset();
 	}
 }
@@ -349,12 +349,12 @@ PendingExecutionResult Executor::ExecuteTask() {
 	}
 	// check if there are any incomplete pipelines
 	auto &scheduler = TaskScheduler::GetScheduler(context);
-	while (completed_pipelines < total_pipelines) {
+	while (completed_pipelines < total_pipelines) { // 还有没有完成的流水线
 		// there are! if we don't already have a task, fetch one
-		if (!task) {
+		if (!task) { // 获取任务
 			scheduler.GetTaskFromProducer(*producer, task);
 		}
-		if (task) { // 这个任务会一直保存在成员变量中
+		if (task) { // 这个任务会一直保存在成员变量中，下次还能继续处理这个任务
 			// if we have a task, partially process it
 			auto result = task->Execute(TaskExecutionMode::PROCESS_PARTIAL); // 部分处理任务
 			if (result != TaskExecutionResult::TASK_NOT_FINISHED) {

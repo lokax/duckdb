@@ -32,17 +32,19 @@ public:
 public:
 	TaskExecutionResult ExecuteTask(TaskExecutionMode mode) override {
 		if (!pipeline_executor) { 
+            // 创建pipeline executor
 			pipeline_executor = make_unique<PipelineExecutor>(pipeline.GetClientContext(), pipeline);
 		}
+        // 处理部分数据
 		if (mode == TaskExecutionMode::PROCESS_PARTIAL) {
 			bool finished = pipeline_executor->Execute(PARTIAL_CHUNK_COUNT);
 			if (!finished) {
 				return TaskExecutionResult::TASK_NOT_FINISHED;
 			}
 		} else {
-			pipeline_executor->Execute();
+			pipeline_executor->Execute(); // 处理全部数据
 		}
-		event->FinishTask();
+		event->FinishTask(); // 完成任务
 		pipeline_executor.reset();
 		return TaskExecutionResult::TASK_FINISHED;
 	}

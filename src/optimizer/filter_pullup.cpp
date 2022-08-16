@@ -19,7 +19,7 @@ unique_ptr<LogicalOperator> FilterPullup::Rewrite(unique_ptr<LogicalOperator> op
 	case LogicalOperatorType::LOGICAL_EXCEPT:
 		return PullupSetOperation(move(op));
 	case LogicalOperatorType::LOGICAL_DISTINCT:
-	case LogicalOperatorType::LOGICAL_ORDER_BY: {
+	case LogicalOperatorType::LOGICAL_ORDER_BY: { // Order By在关联子查询中，暂时不支持
 		// we can just pull directly through these operations without any rewriting
 		op->children[0] = Rewrite(move(op->children[0]));
 		return op;
@@ -40,8 +40,8 @@ unique_ptr<LogicalOperator> FilterPullup::PullupJoin(unique_ptr<LogicalOperator>
 	case JoinType::LEFT:
 	case JoinType::ANTI:
 	case JoinType::SEMI: {
-		can_add_column = true;
-		return PullupFromLeft(move(op));
+		can_add_column = true; // 能够添加列
+		return PullupFromLeft(move(op)); // 右边的不能拉上来
 	}
 	default:
 		// unsupported join type: call children pull up

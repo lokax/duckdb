@@ -45,7 +45,7 @@ unique_ptr<DataChunk> StreamQueryResult::FetchRaw() {
 	{
 		auto lock = LockContext();
 		CheckExecutableInternal(*lock);
-		chunk = context->Fetch(*lock, *this);
+		chunk = context->Fetch(*lock, *this); // 这个chunk应该有可能还是原本存储的chunk， BUG吗
 	}
 	if (!chunk || chunk->ColumnCount() == 0 || chunk->size() == 0) {
 		Close();

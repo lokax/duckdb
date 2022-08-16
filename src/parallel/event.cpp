@@ -32,7 +32,7 @@ void Event::Finish() {
 	for (auto &parent_entry : parents) {
 		auto parent = parent_entry.lock();
 		if (!parent) { // LCOV_EXCL_START
-			continue;
+			continue; // TODO(lokax): 这个地方可能 由于Pipeline Cancel导致去掉了
 		} // LCOV_EXCL_STOP
 		// mark a dependency as completed for each of the parents
 		parent->CompleteDependency();

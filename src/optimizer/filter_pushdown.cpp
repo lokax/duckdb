@@ -93,6 +93,7 @@ void FilterPushdown::GenerateFilters() {
 		D_ASSERT(!combiner.HasFilters());
 		return;
 	}
+    // combiner有点意思
 	combiner.GenerateFilters([&](unique_ptr<Expression> filter) {
 		auto f = make_unique<Filter>();
 		f->filter = move(filter);
@@ -126,3 +127,175 @@ void FilterPushdown::Filter::ExtractBindings() {
 }
 
 } // namespace duckdb
+
+EXPLAIN SELECT 
+    coalesce(anon_1.month, anon_2.month) AS month, 
+    coalesce(coalesce(CAST(anon_1.value AS REAL), 0.0) + coalesce(CAST(anon_2.value AS REAL), 0.0), 0.0) AS value
+FROM (
+    SELECT coalesce(anon_3.month, anon_4.month) AS month, 
+    coalesce(coalesce(CAST(anon_3.value AS REAL), 0.0) + coalesce(CAST(anon_4.value AS REAL), 0.0), 0.0) AS value
+    FROM (
+        SELECT month AS month, sum(anon_5.value) AS value
+        FROM (
+            SELECT date_trunc('month', day) AS month, coalesce(sum(value), 0.0) AS value
+            FROM df1
+            WHERE CAST(day AS DATE) >= '2022-01-01 00:00:00' 
+            AND CAST(day AS DATE) <= '2022-01-31 00:00:00' 
+            AND (organization ILIKE 'org4') 
+            GROUP BY date_trunc('month', day)
+        ) AS anon_5 
+        GROUP BY GROUPING SETS((month))
+    ) AS anon_3 
+    FULL OUTER JOIN (
+        SELECT month AS month, sum(anon_6.value) AS value
+        FROM (
+            SELECT date_trunc('month', day) AS month, coalesce(sum(value), 0.0) AS value
+            FROM df2
+            WHERE CAST(day AS DATE) >= '2022-01-01 00:00:00' 
+            AND CAST(day AS DATE) <= '2022-01-31 00:00:00' 
+            GROUP BY date_trunc('month', day)
+        ) AS anon_6 
+        GROUP BY GROUPING SETS((month))
+    ) AS anon_4 ON anon_3.month = anon_4.month
+) AS anon_1 
+FULL OUTER JOIN (
+    SELECT month AS month, sum(anon_7.value) AS value
+    FROM (
+        SELECT date_trunc('month', day) AS month, coalesce(sum(value), 0.0) AS value
+        FROM df3
+        WHERE CAST(day AS DATE) >= '2022-01-01 00:00:00' 
+        AND CAST(day AS DATE) <= '2022-01-31 00:00:00' 
+        GROUP BY date_trunc('month', day)
+    ) AS anon_7 
+    GROUP BY GROUPING SETS((month))
+) AS anon_2 ON anon_1.month = anon_2.month
+
+┌───────────────────────────┐                                                          
+│         PROJECTION        │                                                          
+│   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │                                                          
+│           month           │                                                          
+│           value           │                                                          
+└─────────────┬─────────────┘                                                                                       
+┌─────────────┴─────────────┐                                                          
+│         HASH_JOIN         │                                                          
+│   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │                                                          
+│            FULL           ├───────────────────────────────────────────┐              
+│       month = month       │                                           │              
+└─────────────┬─────────────┘                                           │                                           
+┌─────────────┴─────────────┐                             ┌─────────────┴─────────────┐
+│         PROJECTION        │                             │       HASH_GROUP_BY       │
+│   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │                             │   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │
+│           month           │                             │             #0            │
+│           value           │                             │          sum(#1)          │
+└─────────────┬─────────────┘                             └─────────────┬─────────────┘                             
+┌─────────────┴─────────────┐                             ┌─────────────┴─────────────┐
+│         HASH_JOIN         │                             │         PROJECTION        │
+│   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │                             │   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │
+│            FULL           ├──────────────┐              │           month           │
+│       month = month       │              │              │           value           │
+└─────────────┬─────────────┘              │              └─────────────┬─────────────┘                             
+┌─────────────┴─────────────┐┌─────────────┴─────────────┐┌─────────────┴─────────────┐
+│       HASH_GROUP_BY       ││       HASH_GROUP_BY       ││         PROJECTION        │
+│   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   ││   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   ││   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │
+│             #0            ││             #0            ││           month           │
+│          sum(#1)          ││          sum(#1)          ││           value           │
+└─────────────┬─────────────┘└─────────────┬─────────────┘└─────────────┬─────────────┘                             
+┌─────────────┴─────────────┐┌─────────────┴─────────────┐┌─────────────┴─────────────┐
+│         PROJECTION        ││         PROJECTION        ││       HASH_GROUP_BY       │
+│   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   ││   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   ││   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │
+│           month           ││           month           ││             #0            │
+│           value           ││           value           ││          sum(#1)          │
+└─────────────┬─────────────┘└─────────────┬─────────────┘└─────────────┬─────────────┘                             
+┌─────────────┴─────────────┐┌─────────────┴─────────────┐┌─────────────┴─────────────┐
+│         PROJECTION        ││         PROJECTION        ││         PROJECTION        │
+│   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   ││   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   ││   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │
+│           month           ││           month           ││  date_trunc('month', day) │
+│           value           ││           value           ││           value           │
+└─────────────┬─────────────┘└─────────────┬─────────────┘└─────────────┬─────────────┘                             
+┌─────────────┴─────────────┐┌─────────────┴─────────────┐┌─────────────┴─────────────┐
+│       HASH_GROUP_BY       ││       HASH_GROUP_BY       ││          SEQ_SCAN         │
+│   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   ││   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   ││   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │
+│             #0            ││             #0            ││            df3            │
+│          sum(#1)          ││          sum(#1)          ││   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │
+│                           ││                           ││            day            │
+│                           ││                           ││           value           │
+│                           ││                           ││   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │
+│                           ││                           ││  Filters: day>=2022-01-01 │
+│                           ││                           ││ AND day<=2022-01-31 A...  │
+│                           ││                           ││         IS NOT NULL       │
+└─────────────┬─────────────┘└─────────────┬─────────────┘└───────────────────────────┘                             
+┌─────────────┴─────────────┐┌─────────────┴─────────────┐                             
+│         PROJECTION        ││         PROJECTION        │                             
+│   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   ││   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │                             
+│  date_trunc('month', day) ││  date_trunc('month', day) │                             
+│           value           ││           value           │                             
+└─────────────┬─────────────┘└─────────────┬─────────────┘                                                          
+┌─────────────┴─────────────┐┌─────────────┴─────────────┐                             
+│         PROJECTION        ││          SEQ_SCAN         │                             
+│   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   ││   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │                             
+│             #0            ││            df2            │                             
+│             #2            ││   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │                             
+│                           ││            day            │                             
+│                           ││           value           │                             
+│                           ││   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │                             
+│                           ││  Filters: day>=2022-01-01 │                             
+│                           ││ AND day<=2022-01-31 A...  │                             
+│                           ││         IS NOT NULL       │                             
+└─────────────┬─────────────┘└───────────────────────────┘                                                          
+┌─────────────┴─────────────┐                                                          
+│           FILTER          │                                                          
+│   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │                                                          
+│ (organization ~~* 'org4') │                                                          
+└─────────────┬─────────────┘                                                                                       
+┌─────────────┴─────────────┐                                                          
+│          SEQ_SCAN         │                                                          
+│   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │                                                          
+│            df1            │                                                          
+│   ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─   │                                                          
+│            day            │                                                          
+│        organization       │                                                          
+│           value           │                                                          
+└───────────────────────────┘                
+
+
+EXPLAIN SELECT 
+    coalesce(anon_1.month, anon_2.month) AS month, 
+    coalesce(coalesce(CAST(anon_1.value AS REAL), 0.0) + coalesce(CAST(anon_2.value AS REAL), 0.0), 0.0) AS value
+FROM (
+    SELECT coalesce(anon_3.month, anon_4.month) AS month, 
+    coalesce(coalesce(CAST(anon_3.value AS REAL), 0.0) + coalesce(CAST(anon_4.value AS REAL), 0.0), 0.0) AS value
+    FROM (
+        SELECT month AS month, sum(anon_6.value) AS value
+        FROM (
+            SELECT date_trunc('month', day) AS month, coalesce(sum(value), 0.0) AS value
+            FROM df2
+            WHERE CAST(day AS DATE) >= '2022-01-01 00:00:00' 
+            AND CAST(day AS DATE) <= '2022-01-31 00:00:00' 
+            GROUP BY date_trunc('month', day)
+        ) AS anon_6 
+        GROUP BY GROUPING SETS((month))
+    ) AS anon_3 
+    FULL OUTER JOIN (
+        SELECT month AS month, sum(anon_5.value) AS value
+        FROM (
+            SELECT date_trunc('month', day) AS month, coalesce(sum(value), 0.0) AS value
+            FROM df1
+            WHERE CAST(day AS DATE) >= '2022-01-01 00:00:00' 
+            AND CAST(day AS DATE) <= '2022-01-31 00:00:00' 
+            AND (organization ILIKE 'org4') 
+            GROUP BY date_trunc('month', day)
+        ) AS anon_5 
+        GROUP BY GROUPING SETS((month))
+    ) AS anon_4 ON anon_3.month = anon_4.month
+) AS anon_1 
+FULL OUTER JOIN (
+    SELECT month AS month, sum(anon_7.value) AS value
+    FROM (
+        SELECT date_trunc('month', day) AS month, coalesce(sum(value), 0.0) AS value
+        FROM df3
+        WHERE CAST(day AS DATE) >= '2022-01-01 00:00:00' 
+        AND CAST(day AS DATE) <= '2022-01-31 00:00:00' 
+        GROUP BY date_trunc('month', day)
+    ) AS anon_7 
+    GROUP BY GROUPING SETS((month))
+) AS anon_2 ON anon_1.month = anon_2.month
