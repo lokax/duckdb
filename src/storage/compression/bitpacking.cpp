@@ -1,6 +1,7 @@
 #include "duckdb/common/bitpacking.hpp"
 
 #include "duckdb/common/limits.hpp"
+#include "duckdb/common/operator/subtract.hpp"
 #include "duckdb/common/types/null_value.hpp"
 #include "duckdb/function/compression/compression.hpp"
 #include "duckdb/function/compression_function.hpp"
@@ -9,7 +10,6 @@
 #include "duckdb/storage/statistics/numeric_statistics.hpp"
 #include "duckdb/storage/table/column_data_checkpointer.hpp"
 #include "duckdb/storage/table/column_segment.hpp"
-#include "duckdb/common/operator/subtract.hpp"
 
 #include <functional>
 
@@ -33,7 +33,7 @@ public:
 		ResetMinMax();
 	}
 
-	T compression_buffer[BITPACKING_METADATA_GROUP_SIZE];// 存实际的数据
+	T compression_buffer[BITPACKING_METADATA_GROUP_SIZE];             // 存实际的数据
 	bool compression_buffer_validity[BITPACKING_METADATA_GROUP_SIZE]; // 表明是不是null
 	idx_t compression_buffer_idx;
 	idx_t total_size;
@@ -102,7 +102,7 @@ public:
 	template <class OP = EmptyBitpackingWriter>
 	bool Update(T *data, ValidityMask &validity, idx_t idx) {
 
-		if (validity.RowIsValid(idx)) { // 数据不是NULL值
+		if (validity.RowIsValid(idx)) {                                 // 数据不是NULL值
 			compression_buffer_validity[compression_buffer_idx] = true; // 设置成true，表示不是NULL值
 			compression_buffer[compression_buffer_idx++] = data[idx];
 			if (!TryUpdateMinMax(data[idx])) {
@@ -259,11 +259,9 @@ public:
 	}
 
 	void FlushSegment() {
-		auto &state = checkpointer.GetCheckpointState();
+        auto &state = checkpointer.GetCheckpointState();
 		auto dataptr = handle.Ptr();
 
-
-		memmove(dataptr + minimal_widths_offset, width_ptr + 1, widths_size);
 		// Compact the segment by moving the metadata next to the data.
 		idx_t metadata_offset = AlignValue(data_ptr - dataptr);
 		idx_t metadata_size = dataptr + Storage::BLOCK_SIZE - metadata_ptr - 1;
@@ -400,18 +398,8 @@ void BitpackingScanPartial(ColumnSegment &segment, ColumnScanState &state, idx_t
 	result.SetVectorType(VectorType::FLAT_VECTOR);
 
 	// Fast path for when no compression was used, we can do a single memcopy
-<<<<<<< HEAD
-	if (STANDARD_VECTOR_SIZE == BITPACKING_WIDTH_GROUP_SIZE) {
-        // 原来之前的GetEffectiveBitsNum说得是这个意思
-        // 可以做一个快速扫描的过程，虽然稍微占点空间
-		if (scan_state.current_width == sizeof(T) * 8 && scan_count <= BITPACKING_WIDTH_GROUP_SIZE &&
-		    scan_state.position_in_group == 0) {
-
-			memcpy(result_data + result_offset, scan_state.current_width_group_ptr, scan_count * sizeof(T));
-			scan_state.current_width_group_ptr += scan_count * sizeof(T);
-			scan_state.bitpacking_width_ptr -= sizeof(bitpacking_width_t);
-			scan_state.LoadCurrentBitWidth();
-=======
+	// 原来之前的GetEffectiveBitsNum说得是这个意思
+	// 可以做一个快速扫描的过程，虽然稍微占点空间
 	if (STANDARD_VECTOR_SIZE == BITPACKING_METADATA_GROUP_SIZE) {
 		if (scan_state.current_frame_of_reference == 0 && scan_state.current_width == sizeof(T) * 8 &&
 		    scan_count <= BITPACKING_METADATA_GROUP_SIZE && scan_state.position_in_group == 0) {
@@ -419,7 +407,6 @@ void BitpackingScanPartial(ColumnSegment &segment, ColumnScanState &state, idx_t
 			memcpy(result_data + result_offset, scan_state.current_metadata_group_ptr, scan_count * sizeof(T));
 			scan_state.current_metadata_group_ptr += scan_count * sizeof(T);
 			scan_state.LoadCurrentMetaData();
->>>>>>> a086308b550a09dd825a502d32277493e9c4002f
 			return;
 		}
 	}
