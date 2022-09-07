@@ -13,7 +13,7 @@ unique_ptr<LogicalOperator> FilterPushdown::PushdownSingleJoin(unique_ptr<Logica
 	// now check the set of filters
 	for (idx_t i = 0; i < filters.size(); i++) {
 		auto side = JoinSide::GetJoinSide(filters[i]->bindings, left_bindings, right_bindings);
-		if (side == JoinSide::LEFT) {
+		if (side == JoinSide::LEFT) { // 只能下推到左边吗？
 			// bindings match left side: push into left
 			left_pushdown.filters.push_back(move(filters[i]));
 			// erase the filter from the list of filters

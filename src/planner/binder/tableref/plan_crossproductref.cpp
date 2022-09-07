@@ -4,6 +4,7 @@
 
 namespace duckdb {
 
+// 笛卡尔积在这里创建
 unique_ptr<LogicalOperator> Binder::CreatePlan(BoundCrossProductRef &expr) {
 	auto left = CreatePlan(*expr.left);
 	auto right = CreatePlan(*expr.right);

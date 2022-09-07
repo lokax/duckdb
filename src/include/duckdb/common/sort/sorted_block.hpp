@@ -184,7 +184,7 @@ struct SBIterator {
 		if (new_block_idx != scan.block_idx) {
 			scan.SetIndices(new_block_idx, 0);
 			if (new_block_idx < block_count) {
-				scan.PinRadix(scan.block_idx);
+				scan.PinRadix(scan.block_idx); // Pin的是Radix这个快
 				block_ptr = scan.RadixPtr();
 				if (!all_constant) {
 					scan.PinData(*scan.sb->blob_sorting_data);

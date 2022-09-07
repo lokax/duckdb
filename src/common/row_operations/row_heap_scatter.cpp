@@ -116,7 +116,9 @@ void RowOperations::ComputeEntrySizes(Vector &v, idx_t entry_sizes[], idx_t vcou
 template <class T>
 static void TemplatedHeapScatter(UnifiedVectorFormat &vdata, const SelectionVector &sel, idx_t count, idx_t col_idx,
                                  data_ptr_t *key_locations, data_ptr_t *validitymask_locations, idx_t offset) {
-	auto source = (T *)vdata.data;
+	// 拿出source
+    auto source = (T *)vdata.data;
+    // 所有数据都是有效的
 	if (!validitymask_locations) {
 		for (idx_t i = 0; i < count; i++) {
 			auto idx = sel.get_index(i);
@@ -140,6 +142,7 @@ static void TemplatedHeapScatter(UnifiedVectorFormat &vdata, const SelectionVect
 			key_locations[i] += sizeof(T);
 
 			// set the validitymask
+            // NULL值，把对应位置的bit反转成0
 			if (!vdata.validity.RowIsValid(source_idx)) {
 				*(validitymask_locations[i] + entry_idx) &= bit;
 			}
@@ -198,6 +201,7 @@ static void HeapScatterStructVector(Vector &v, idx_t vcount, const SelectionVect
 
 	auto &children = StructVector::GetEntries(v);
 	idx_t num_children = children.size();
+    // 孩子的数量
 
 	// the whole struct itself can be NULL
 	idx_t entry_idx;
@@ -237,14 +241,16 @@ static void HeapScatterListVector(Vector &v, idx_t vcount, const SelectionVector
 
 	idx_t entry_idx;
 	idx_t idx_in_entry;
+    // 行格式下
 	ValidityBytes::GetEntryIndex(col_no, entry_idx, idx_in_entry);
 
 	auto list_data = ListVector::GetData(v);
-
+    // 拿出实际的数据向量
 	auto &child_vector = ListVector::GetEntry(v);
 
 	UnifiedVectorFormat list_vdata;
 	child_vector.ToUnifiedFormat(ListVector::GetListSize(v), list_vdata);
+    // 孩子的类型
 	auto child_type = ListType::GetChildType(v.GetType()).InternalType();
 
 	idx_t list_entry_sizes[STANDARD_VECTOR_SIZE];
@@ -261,6 +267,7 @@ static void HeapScatterListVector(Vector &v, idx_t vcount, const SelectionVector
 			}
 			continue;
 		}
+        // list_entry_t的情况
 		auto list_entry = list_data[source_idx];
 
 		// store list length
@@ -278,6 +285,7 @@ static void HeapScatterListVector(Vector &v, idx_t vcount, const SelectionVector
 		data_ptr_t var_entry_size_ptr = nullptr;
 		if (!TypeIsConstantSize(child_type)) {
 			var_entry_size_ptr = key_locations[i];
+            // idx_t?干什么的?
 			key_locations[i] += list_entry.length * sizeof(idx_t);
 		}
 
@@ -314,6 +322,7 @@ static void HeapScatterListVector(Vector &v, idx_t vcount, const SelectionVector
 				for (idx_t entry_idx = 0; entry_idx < next; entry_idx++) {
 					list_entry_locations[entry_idx] = key_locations[i];
 					key_locations[i] += list_entry_sizes[entry_idx];
+                    // 懂了
 					Store<idx_t>(list_entry_sizes[entry_idx], var_entry_size_ptr);
 					var_entry_size_ptr += sizeof(idx_t);
 				}

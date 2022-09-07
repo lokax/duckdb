@@ -37,7 +37,8 @@ unique_ptr<LogicalOperator> FilterPushdown::PushdownMarkJoin(unique_ptr<LogicalO
 #endif
 			// this filter references the marker
 			// we can turn this into a SEMI join if the filter is on only the marker
-			if (filters[i]->filter->type == ExpressionType::BOUND_COLUMN_REF) {
+			// 我觉得关联存在性检测的时候
+            if (filters[i]->filter->type == ExpressionType::BOUND_COLUMN_REF) {
 				// filter just references the marker: turn into semi join
 				join.join_type = JoinType::SEMI;
 				filters.erase(filters.begin() + i);

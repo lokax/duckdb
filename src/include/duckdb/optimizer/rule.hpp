@@ -22,11 +22,11 @@ public:
 	}
 
 	//! The expression rewriter this rule belongs to
-	ExpressionRewriter &rewriter;
+	ExpressionRewriter &rewriter; // 表达式重写器
 	//! The root
-	unique_ptr<LogicalOperatorMatcher> logical_root;
+	unique_ptr<LogicalOperatorMatcher> logical_root; // 算子matcher
 	//! The expression matcher of the rule
-	unique_ptr<ExpressionMatcher> root;
+	unique_ptr<ExpressionMatcher> root; // 表达式matcher
 
 	virtual unique_ptr<Expression> Apply(LogicalOperator &op, vector<Expression *> &bindings, bool &fixed_point,
 	                                     bool is_root) = 0;

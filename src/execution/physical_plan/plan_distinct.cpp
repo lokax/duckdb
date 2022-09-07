@@ -13,31 +13,33 @@ unique_ptr<PhysicalOperator> PhysicalPlanGenerator::CreateDistinctOn(unique_ptr<
 	D_ASSERT(child);
 	D_ASSERT(!distinct_targets.empty());
 
-	auto &types = child->GetTypes();
+	auto &types = child->GetTypes(); // 拿出孩子算子的类型
 	vector<unique_ptr<Expression>> groups, aggregates, projections;
 	idx_t group_count = distinct_targets.size(); // 分组的数量就是我们要distinct的元素的数量
 	unordered_map<idx_t, idx_t> group_by_references;
 	vector<LogicalType> aggregate_types;
 	// creates one group per distinct_target
+    // 遍历一下
 	for (idx_t i = 0; i < distinct_targets.size(); i++) {
 		auto &target = distinct_targets[i];
 		if (target->type == ExpressionType::BOUND_REF) {
 			auto &bound_ref = (BoundReferenceExpression &)*target;
-			group_by_references[bound_ref.index] = i;
+			group_by_references[bound_ref.index] = i; // 如果是绑定引用？
 		}
 		aggregate_types.push_back(target->return_type);
 		groups.push_back(move(target));
 	}
+    // EXPLAIN SELECT DISTINCT x FROM test ORDER BY y DESC;这个例子比较特殊
 	bool requires_projection = false;
 	if (types.size() != group_count) {
 		requires_projection = true;
 	}
 	// we need to create one aggregate per column in the select_list
 	for (idx_t i = 0; i < types.size(); ++i) {
-		auto logical_type = types[i];
+		auto logical_type = types[i]; 
 		// check if we can directly refer to a group, or if we need to push an aggregate with FIRST
 		auto entry = group_by_references.find(i);
-		if (entry != group_by_references.end()) {
+		if (entry != group_by_references.end()) { // 如果该列是被DISTINCT直接引用的话
 			auto group_index = entry->second;
 			// entry is found: can directly refer to a group
 			projections.push_back(make_unique<BoundReferenceExpression>(logical_type, group_index));

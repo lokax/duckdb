@@ -40,7 +40,7 @@ void QueryGraph::Print() {
 QueryEdge *QueryGraph::GetQueryEdge(JoinRelationSet *left) {
 	D_ASSERT(left && left->count > 0);
 	// find the EdgeInfo corresponding to the left set
-	QueryEdge *info = &root;
+	QueryEdge *info = &root; // 根info
 	for (idx_t i = 0; i < left->count; i++) {
 		auto entry = info->children.find(left->relations[i]);
 		if (entry == info->children.end()) {
@@ -57,10 +57,10 @@ QueryEdge *QueryGraph::GetQueryEdge(JoinRelationSet *left) {
 void QueryGraph::CreateEdge(JoinRelationSet *left, JoinRelationSet *right, FilterInfo *filter_info) {
 	D_ASSERT(left && right && left->count > 0 && right->count > 0);
 	// find the EdgeInfo corresponding to the left set
-	auto info = GetQueryEdge(left);
+	auto info = GetQueryEdge(left); // 拿出query edge
 	// now insert the edge to the right relation, if it does not exist
 	for (idx_t i = 0; i < info->neighbors.size(); i++) {
-		if (info->neighbors[i]->neighbor == right) {
+		if (info->neighbors[i]->neighbor == right) { // neighbors就代表了一条边？
 			if (filter_info) {
 				// neighbor already exists just add the filter, if we have any
 				info->neighbors[i]->filters.push_back(filter_info);
@@ -107,7 +107,7 @@ vector<idx_t> QueryGraph::GetNeighbors(JoinRelationSet *node, unordered_set<idx_
 	EnumerateNeighbors(node, [&](NeighborInfo *info) -> bool {
 		if (!JoinRelationSetIsExcluded(info->neighbor, exclusion_set)) {
 			// add the smallest node of the neighbor to the set
-			result.insert(info->neighbor->relations[0]);
+			result.insert(info->neighbor->relations[0]); // 集合中最小的一个index
 		}
 		return false;
 	});

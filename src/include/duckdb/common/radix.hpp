@@ -20,6 +20,7 @@
 
 namespace duckdb {
 
+// 这里做了位交换？
 #define BSWAP16(x) ((uint16_t)((((uint16_t)(x)&0xff00) >> 8) | (((uint16_t)(x)&0x00ff) << 8)))
 
 #define BSWAP32(x)                                                                                                     \
@@ -71,6 +72,7 @@ public:
 		}
 		// nan
 		if (Value::IsNan(x)) {
+            // 全部是1
 			return UINT_MAX;
 		}
 		//! infinity

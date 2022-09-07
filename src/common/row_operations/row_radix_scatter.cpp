@@ -4,17 +4,21 @@
 #include "duckdb/common/types/vector.hpp"
 
 namespace duckdb {
-
+// 该模块已经看过了
 template <class T>
 void TemplatedRadixScatter(UnifiedVectorFormat &vdata, const SelectionVector &sel, idx_t add_count,
                            data_ptr_t *key_locations, const bool desc, const bool has_null, const bool nulls_first,
                            const idx_t offset) {
-	auto source = (T *)vdata.data; // 拿出裸指针
+    // 拿出source data的裸指针
+	auto source = (T *)vdata.data;
+    // 如果有空值
 	if (has_null) {
 		auto &validity = vdata.validity;
 		const data_t valid = nulls_first ? 1 : 0;
-		const data_t invalid = 1 - valid;
-
+		const data_t invalid = 1 - valid; 
+        // 因为是按照二进制排序的，所有如果是NULL Last的话，
+        // invalid值就是1，这样该值更大，NULL就会排到后面去
+        // 遍历数组
 		for (idx_t i = 0; i < add_count; i++) {
 			auto idx = sel.get_index(i);
 			auto source_idx = vdata.sel->get_index(idx) + offset;
@@ -24,6 +28,7 @@ void TemplatedRadixScatter(UnifiedVectorFormat &vdata, const SelectionVector &se
 				Radix::EncodeData<T>(key_locations[i] + 1, source[source_idx]);
 				// invert bits if desc
 				if (desc) {
+                    // 反转比特
 					for (idx_t s = 1; s < sizeof(T) + 1; s++) {
 						*(key_locations[i] + s) = ~*(key_locations[i] + s);
 					}
@@ -31,6 +36,7 @@ void TemplatedRadixScatter(UnifiedVectorFormat &vdata, const SelectionVector &se
 			} else {
 				key_locations[i][0] = invalid;
 				memset(key_locations[i] + 1, '\0', sizeof(T));
+                // 全部设置为0
 			}
 			key_locations[i] += sizeof(T) + 1;
 		}
@@ -51,6 +57,8 @@ void TemplatedRadixScatter(UnifiedVectorFormat &vdata, const SelectionVector &se
 	}
 }
 
+
+// 和上面的函数差不多，只是换成了编码string前缀
 void RadixScatterStringVector(UnifiedVectorFormat &vdata, const SelectionVector &sel, idx_t add_count,
                               data_ptr_t *key_locations, const bool desc, const bool has_null, const bool nulls_first,
                               const idx_t prefix_len, idx_t offset) {
@@ -126,6 +134,7 @@ void RadixScatterListVector(Vector &v, UnifiedVectorFormat &vdata, const Selecti
 					                            key_locations + i, false, true, false, prefix_len, width - 1,
 					                            list_entry.offset);
 				} else {
+                    // 列表长度是0
 					// denote that the list is empty with a 0
 					key_locations[i][0] = 0;
 					key_locations[i]++;
@@ -153,6 +162,10 @@ void RadixScatterListVector(Vector &v, UnifiedVectorFormat &vdata, const Selecti
 				// denote that the list is not empty with a 1
 				key_locations[i][0] = 1;
 				key_locations[i]++;
+                // 只序列化列表的第一个元素？
+                // 是的
+                // 会在Comparator::CompareTuple那里对VARCHAR, LIST，STRUCT做更多的比较
+                // 这里只是作为一个Radix快速的比较
 				RowOperations::RadixScatter(child_vector, list_size, *FlatVector::IncrementalSelectionVector(), 1,
 				                            key_locations + i, false, true, false, prefix_len, width - 1,
 				                            list_entry.offset);
@@ -195,6 +208,7 @@ void RadixScatterStructVector(Vector &v, UnifiedVectorFormat &vdata, idx_t vcoun
 		width--;
 	}
 	// serialize the struct
+    // 只序列化第一个Child Vector?
 	auto &child_vector = *StructVector::GetEntries(v)[0];
 	RowOperations::RadixScatter(child_vector, vcount, *FlatVector::IncrementalSelectionVector(), add_count,
 	                            key_locations, false, true, false, prefix_len, width, offset);

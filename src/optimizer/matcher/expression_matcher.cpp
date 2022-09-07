@@ -34,11 +34,13 @@ bool CaseExpressionMatcher::Match(Expression *expr_p, vector<Expression *> &bind
 }
 
 bool ComparisonExpressionMatcher::Match(Expression *expr_p, vector<Expression *> &bindings) {
+    // 注意这里传了bindings，第一个binding是比较表达式自己
 	if (!ExpressionMatcher::Match(expr_p, bindings)) {
 		return false;
 	}
 	auto expr = (BoundComparisonExpression *)expr_p;
 	vector<Expression *> expressions = {expr->left.get(), expr->right.get()};
+    // 之后这里的第二个binding会是可折叠的表达式
 	return SetMatcher::Match(matchers, expressions, bindings, policy);
 }
 
@@ -91,10 +93,10 @@ bool FunctionExpressionMatcher::Match(Expression *expr_p, vector<Expression *> &
 
 bool FoldableConstantMatcher::Match(Expression *expr, vector<Expression *> &bindings) {
 	// we match on ANY expression that is a scalar expression
-	if (!expr->IsFoldable()) {
+	if (!expr->IsFoldable()) { // 不能折叠，这里返回false
 		return false;
 	}
-	bindings.push_back(expr);
+	bindings.push_back(expr); // push进去
 	return true;
 }
 

@@ -26,6 +26,7 @@ inline T NullValue() {
 	return std::numeric_limits<T>::min();
 }
 
+// TODO(lokax): 不太明白
 constexpr const char str_nil[2] = {'\200', '\0'};
 
 template <>

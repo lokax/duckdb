@@ -33,10 +33,11 @@ bool JoinOrderOptimizer::ExtractBindings(Expression &expression, unordered_set<i
 		D_ASSERT(relation_mapping.find(colref.binding.table_index) != relation_mapping.end());
 		bindings.insert(relation_mapping[colref.binding.table_index]);
 	}
+    // 为什么会有这个东西？
 	if (expression.type == ExpressionType::BOUND_REF) {
 		// bound expression
 		bindings.clear();
-		return false;
+		return false; // 不能reorder? 因为已经有固定Ref了?不懂
 	}
 	D_ASSERT(expression.type != ExpressionType::SUBQUERY);
 	bool can_reorder = true;
@@ -65,15 +66,22 @@ static unique_ptr<LogicalOperator> PushFilter(unique_ptr<LogicalOperator> node, 
 	return node;
 }
 
+// 提取连接关系
 bool JoinOrderOptimizer::ExtractJoinRelations(LogicalOperator &input_op, vector<LogicalOperator *> &filter_operators,
                                               LogicalOperator *parent) {
 	LogicalOperator *op = &input_op;
+    // 只要有一个孩子，并且当前算子不少Projection和Expression get
 	while (op->children.size() == 1 && (op->type != LogicalOperatorType::LOGICAL_PROJECTION &&
 	                                    op->type != LogicalOperatorType::LOGICAL_EXPRESSION_GET)) {
 		if (op->type == LogicalOperatorType::LOGICAL_FILTER) {
 			// extract join conditions from filter
-			filter_operators.push_back(op);
+			filter_operators.push_back(op); // 加到filter operator里面去
 		}
+        // 遇到聚合和窗口就开新的优化器处理孩子，并且当前是不能重排的？
+        // 为什么不能重排呢？
+        // 重排代表什么东西
+        // 重排的时候，有时候会把filter拿来当join的条件，或者是推到join下面去
+        // 所有这两个算子不能重排
 		if (op->type == LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY ||
 		    op->type == LogicalOperatorType::LOGICAL_WINDOW) {
 			// don't push filters through projection or aggregate and group by
@@ -81,14 +89,15 @@ bool JoinOrderOptimizer::ExtractJoinRelations(LogicalOperator &input_op, vector<
 			op->children[0] = optimizer.Optimize(move(op->children[0]));
 			return false;
 		}
-		op = op->children[0].get();
+		op = op->children[0].get(); // 继续处理孩子
 	}
 	bool non_reorderable_operation = false;
 	if (op->type == LogicalOperatorType::LOGICAL_UNION || op->type == LogicalOperatorType::LOGICAL_EXCEPT ||
 	    op->type == LogicalOperatorType::LOGICAL_INTERSECT || op->type == LogicalOperatorType::LOGICAL_DELIM_JOIN ||
 	    op->type == LogicalOperatorType::LOGICAL_ANY_JOIN) {
 		// set operation, optimize separately in children
-		non_reorderable_operation = true;
+		// 独立优化孩子
+        non_reorderable_operation = true;
 	}
 
 	if (op->type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN) {
@@ -97,8 +106,10 @@ bool JoinOrderOptimizer::ExtractJoinRelations(LogicalOperator &input_op, vector<
 			// extract join conditions from inner join
 			filter_operators.push_back(op);
 		} else {
+            // 不是inner join的情况
 			// non-inner join, not reorderable yet
 			non_reorderable_operation = true;
+            // 为什么要两倍，右外连接开销更大. 在GetData阶段要重新扫描哈希表
 			if (join.join_type == JoinType::LEFT && join.right_projection_map.empty()) {
 				// for left joins; if the RHS cardinality is significantly larger than the LHS (2x)
 				// we convert to doing a RIGHT OUTER JOIN
@@ -118,12 +129,16 @@ bool JoinOrderOptimizer::ExtractJoinRelations(LogicalOperator &input_op, vector<
 		}
 	}
 	if (non_reorderable_operation) {
+        // 遇到了不能重排的操作？
+        // 什么叫不能重排？
+        // 为什么集合操作不能重排呢？
 		// we encountered a non-reordable operation (setop or non-inner join)
 		// we do not reorder non-inner joins yet, however we do want to expand the potential join graph around them
 		// non-inner joins are also tricky because we can't freely make conditions through them
 		// e.g. suppose we have (left LEFT OUTER JOIN right WHERE right IS NOT NULL), the join can generate
 		// new NULL values in the right side, so pushing this condition through the join leads to incorrect results
 		// for this reason, we just start a new JoinOptimizer pass in each of the children of the join
+        // 对每个孩子，创建新的优化器进行单独处理
 		for (auto &child : op->children) {
 			JoinOrderOptimizer optimizer(context);
 			child = optimizer.Optimize(move(child));
@@ -137,11 +152,12 @@ bool JoinOrderOptimizer::ExtractJoinRelations(LogicalOperator &input_op, vector<
 		LogicalJoin::GetTableReferences(*op, bindings);
 		// now create the relation that refers to all these bindings
 		auto relation = make_unique<SingleJoinRelation>(&input_op, parent);
+        // 把这些bindings映射到同一个位置上
 		for (idx_t it : bindings) {
 			relation_mapping[it] = relations.size();
 		}
 		relations.push_back(move(relation));
-		return true;
+		return true; // 能够重排
 	}
 	if (op->type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN ||
 	    op->type == LogicalOperatorType::LOGICAL_CROSS_PRODUCT) {
@@ -174,6 +190,8 @@ bool JoinOrderOptimizer::ExtractJoinRelations(LogicalOperator &input_op, vector<
 		auto proj = (LogicalProjection *)op;
 		// we run the join order optimizer witin the subquery as well
 		JoinOrderOptimizer optimizer(context);
+        // 在Projection上面的时候已经收集了一些filter op
+        // 这个地方，再次创建一个新的优化器?
 		op->children[0] = optimizer.Optimize(move(op->children[0]));
 		// projection, add to the set of relations
 		auto relation = make_unique<SingleJoinRelation>(&input_op, parent);
@@ -198,7 +216,7 @@ static unique_ptr<JoinNode> CreateJoinTree(JoinRelationSet *set, NeighborInfo *i
 	// FIXME: we should probably actually benchmark that as well
 	// FIXME: should consider different join algorithms, should we pick a join algorithm here as well? (probably)
 	if (left->cardinality < right->cardinality) {
-		return CreateJoinTree(set, info, right, left);
+		return CreateJoinTree(set, info, right, left); // 交换顺序
 	}
 	// the expected cardinality is the max of the child cardinalities
 	// FIXME: we should obviously use better cardinality estimation here
@@ -212,19 +230,22 @@ static unique_ptr<JoinNode> CreateJoinTree(JoinRelationSet *set, NeighborInfo *i
 		expected_cardinality = MaxValue(left->cardinality, right->cardinality);
 	}
 	// cost is expected_cardinality plus the cost of the previous plans
+    // 这里代价只是cardinality? 为什么没有plus之前的计划
 	idx_t cost = expected_cardinality;
 	return make_unique<JoinNode>(set, info, left, right, expected_cardinality, cost);
 }
 
 JoinNode *JoinOrderOptimizer::EmitPair(JoinRelationSet *left, JoinRelationSet *right, NeighborInfo *info) {
 	// get the left and right join plans
-	auto &left_plan = plans[left];
-	auto &right_plan = plans[right];
-	auto new_set = set_manager.Union(left, right);
+	auto &left_plan = plans[left]; // 左边最优计划
+	auto &right_plan = plans[right]; // 右边最优计划
+    // 合并出一个新的更大的关系集
+	auto new_set = set_manager.Union(left, right); // 虽然合并了，但是之前的两个应该还是在的吧？
 	// create the join tree based on combining the two plans
 	auto new_plan = CreateJoinTree(new_set, info, left_plan.get(), right_plan.get());
 	// check if this plan is the optimal plan we found for this set of relations
 	auto entry = plans.find(new_set);
+    // 如果新的计划代价更小
 	if (entry == plans.end() || new_plan->cost < entry->second->cost) {
 		// the plan is the optimal plan, move it into the dynamic programming tree
 		auto result = new_plan.get();
@@ -247,23 +268,23 @@ bool JoinOrderOptimizer::TryEmitPair(JoinRelationSet *left, JoinRelationSet *rig
 }
 
 bool JoinOrderOptimizer::EmitCSG(JoinRelationSet *node) {
-	if (node->count == relations.size()) {
+	if (node->count == relations.size()) { // 为什么？
 		return true;
 	}
 	// create the exclusion set as everything inside the subgraph AND anything with members BELOW it
 	unordered_set<idx_t> exclusion_set;
-	for (idx_t i = 0; i < node->relations[0]; i++) {
+	for (idx_t i = 0; i < node->relations[0]; i++) { // 把在relations[0]之前的放进排除集
 		exclusion_set.insert(i);
 	}
-	UpdateExclusionSet(node, exclusion_set);
+	UpdateExclusionSet(node, exclusion_set); // 排除掉当前集合
 	// find the neighbors given this exclusion set
-	auto neighbors = query_graph.GetNeighbors(node, exclusion_set);
-	if (neighbors.empty()) {
+	auto neighbors = query_graph.GetNeighbors(node, exclusion_set); // 获取邻居
+	if (neighbors.empty()) { // 没有邻居
 		return true;
 	}
 	// we iterate over the neighbors ordered by their first node
-	sort(neighbors.begin(), neighbors.end());
-	for (auto neighbor : neighbors) {
+	sort(neighbors.begin(), neighbors.end()); // 对邻居进行排序
+	for (auto neighbor : neighbors) { // 遍历每个邻居
 		// since the GetNeighbors only returns the smallest element in a list, the entry might not be connected to
 		// (only!) this neighbor,  hence we have to do a connectedness check before we can emit it
 		auto neighbor_relation = set_manager.GetJoinRelation(neighbor);
@@ -280,6 +301,7 @@ bool JoinOrderOptimizer::EmitCSG(JoinRelationSet *node) {
 	return true;
 }
 
+// 右边是邻居节点
 bool JoinOrderOptimizer::EnumerateCmpRecursive(JoinRelationSet *left, JoinRelationSet *right,
                                                unordered_set<idx_t> exclusion_set) {
 	// get the neighbors of the second relation under the exclusion set
@@ -290,8 +312,9 @@ bool JoinOrderOptimizer::EnumerateCmpRecursive(JoinRelationSet *left, JoinRelati
 	vector<JoinRelationSet *> union_sets;
 	union_sets.resize(neighbors.size());
 	for (idx_t i = 0; i < neighbors.size(); i++) {
-		auto neighbor = set_manager.GetJoinRelation(neighbors[i]);
+		auto neighbor = set_manager.GetJoinRelation(neighbors[i]); // 获取邻居set
 		// emit the combinations of this node and its neighbors
+        // 右边和右边的邻居合并在一起
 		auto combined_set = set_manager.Union(right, neighbor);
 		if (combined_set->count > right->count && plans.find(combined_set) != plans.end()) {
 			auto connection = query_graph.GetConnection(left, combined_set);
@@ -304,10 +327,10 @@ bool JoinOrderOptimizer::EnumerateCmpRecursive(JoinRelationSet *left, JoinRelati
 		union_sets[i] = combined_set;
 	}
 	// recursively enumerate the sets
-	unordered_set<idx_t> new_exclusion_set = exclusion_set;
+	unordered_set<idx_t> new_exclusion_set = exclusion_set; // 新的排除集合
 	for (idx_t i = 0; i < neighbors.size(); i++) {
 		// updated the set of excluded entries with this neighbor
-		new_exclusion_set.insert(neighbors[i]);
+		new_exclusion_set.insert(neighbors[i]); // 排除掉当前的邻居
 		if (!EnumerateCmpRecursive(left, union_sets[i], new_exclusion_set)) {
 			return false;
 		}
@@ -350,9 +373,10 @@ bool JoinOrderOptimizer::EnumerateCSGRecursive(JoinRelationSet *node, unordered_
 bool JoinOrderOptimizer::SolveJoinOrderExactly() {
 	// now we perform the actual dynamic programming to compute the final result
 	// we enumerate over all the possible pairs in the neighborhood
+    // 从后往前去遍历
 	for (idx_t i = relations.size(); i > 0; i--) {
 		// for every node in the set, we consider it as the start node once
-		auto start_node = set_manager.GetJoinRelation(i - 1);
+		auto start_node = set_manager.GetJoinRelation(i - 1); // 获得relation set
 		// emit the start node
 		if (!EmitCSG(start_node)) {
 			return false;
@@ -384,6 +408,8 @@ void JoinOrderOptimizer::SolveJoinOrderApproximately() {
 		// by 1, so the total cost is O(r^3) in the amount of relations
 		idx_t best_left = 0, best_right = 0;
 		JoinNode *best_connection = nullptr;
+        // 两层循环
+        // 还有while这一层循环，时间复杂度三方
 		for (idx_t i = 0; i < join_relations.size(); i++) {
 			auto left = join_relations[i];
 			for (idx_t j = i + 1; j < join_relations.size(); j++) {
@@ -402,6 +428,9 @@ void JoinOrderOptimizer::SolveJoinOrderApproximately() {
 				}
 			}
 		}
+        // 所有关系间没有一条边是连接的
+        // 找到两个最小的关系，建立笛卡尔积
+        // 建立笛卡尔积后，下次就很有可能和其他关系set有连接了
 		if (!best_connection) {
 			// could not find a connection, but we were not done with finding a completed plan
 			// we have to add a cross product; we add it between the two smallest relations
@@ -424,9 +453,10 @@ void JoinOrderOptimizer::SolveJoinOrderApproximately() {
 			}
 			D_ASSERT(smallest_plans[0] && smallest_plans[1]);
 			D_ASSERT(smallest_index[0] != smallest_index[1]);
-			auto left = smallest_plans[0]->set;
+			auto left = smallest_plans[0]->set; // 拿出两个集合
 			auto right = smallest_plans[1]->set;
 			// create a cross product edge (i.e. edge with empty filter) between these two sets in the query graph
+            // nullptr代表没有filter，这种就是笛卡尔积
 			query_graph.CreateEdge(left, right, nullptr);
 			// now emit the pair and continue with the algorithm
 			auto connection = query_graph.GetConnection(left, right);
@@ -463,6 +493,8 @@ void JoinOrderOptimizer::SolveJoinOrder() {
 void JoinOrderOptimizer::GenerateCrossProducts() {
 	// generate a set of cross products to combine the currently available plans into a full join plan
 	// we create edges between every relation with a high cost
+    // t1.a + t2.b = t1.b 这种情况是否会进来这里呢？
+    // 这种情况就2个relation，给两个relation建立两条边做笛卡尔积
 	for (idx_t i = 0; i < relations.size(); i++) {
 		auto left = set_manager.GetJoinRelation(i);
 		for (idx_t j = 0; j < relations.size(); j++) {
@@ -480,8 +512,8 @@ static unique_ptr<LogicalOperator> ExtractJoinRelation(SingleJoinRelation &rel) 
 	for (idx_t i = 0; i < children.size(); i++) {
 		if (children[i].get() == rel.op) {
 			// found it! take ownership of it from the parent
-			auto result = move(children[i]);
-			children.erase(children.begin() + i);
+			auto result = move(children[i]); // 获得所有权？
+			children.erase(children.begin() + i); // 把父节点的孩子移除？
 			return result;
 		}
 	}
@@ -493,18 +525,22 @@ JoinOrderOptimizer::GenerateJoins(vector<unique_ptr<LogicalOperator>> &extracted
 	JoinRelationSet *left_node = nullptr, *right_node = nullptr;
 	JoinRelationSet *result_relation;
 	unique_ptr<LogicalOperator> result_operator;
+    // 不是叶子节点
 	if (node->left && node->right) {
 		// generate the left and right children
+        // 递归生成左边和右边孩子
 		auto left = GenerateJoins(extracted_relations, node->left);
 		auto right = GenerateJoins(extracted_relations, node->right);
 
+        // 没有filter，则代表是笛卡尔积
 		if (node->info->filters.empty()) {
 			// no filters, create a cross product
 			result_operator = LogicalCrossProduct::Create(move(left.second), move(right.second));
 		} else {
 			// we have filters, create a join node
-			auto join = make_unique<LogicalComparisonJoin>(JoinType::INNER);
-			join->children.push_back(move(left.second));
+			// 创建一个连接
+            auto join = make_unique<LogicalComparisonJoin>(JoinType::INNER);
+			join->children.push_back(move(left.second)); // push两个孩子进去
 			join->children.push_back(move(right.second));
 			// set the join conditions from the join node
 			for (auto &f : node->info->filters) {
@@ -529,18 +565,20 @@ JoinOrderOptimizer::GenerateJoins(vector<unique_ptr<LogicalOperator>> &extracted
 					// reverse comparison expression if we reverse the order of the children
 					cond.comparison = FlipComparisionExpression(cond.comparison);
 				}
-				join->conditions.push_back(move(cond));
+				join->conditions.push_back(move(cond)); // 添加两个连接条件
 			}
 			D_ASSERT(!join->conditions.empty());
 			result_operator = move(join);
 		}
 		left_node = left.first;
 		right_node = right.first;
+        // Union两个集合
 		result_relation = set_manager.Union(left_node, right_node);
 	} else {
 		// base node, get the entry from the list of extracted relations
 		D_ASSERT(node->set->count == 1);
 		D_ASSERT(extracted_relations[node->set->relations[0]]);
+        // 叶子节点，直接拿出OP
 		result_relation = node->set;
 		result_operator = move(extracted_relations[node->set->relations[0]]);
 	}
@@ -549,16 +587,18 @@ JoinOrderOptimizer::GenerateJoins(vector<unique_ptr<LogicalOperator>> &extracted
 	// hence we should push it here
 	for (auto &filter_info : filter_infos) {
 		// check if the filter has already been extracted
-		auto info = filter_info.get();
+		auto info = filter_info.get(); // 拿出裸指针
 		if (filters[info->filter_index]) {
 			// now check if the filter is a subset of the current relation
 			// note that infos with an empty relation set are a special case and we do not push them down
 			if (info->set->count > 0 && JoinRelationSet::IsSubset(result_relation, info->set)) {
-				auto filter = move(filters[info->filter_index]);
+				auto filter = move(filters[info->filter_index]); // 移动出去之后，该位置就变成nullptr了
 				// if it is, we can push the filter
 				// we can push it either into a join or as a filter
 				// check if we are in a join or in a base table
 				if (!left_node || !info->left_set) {
+                    // left_node是空，代表是base table，就只能在当前算子上面构建filter
+                    // info->left_set是空代表什么？看Optimize()自己写的注释
 					// base table or non-comparison expression, push it as a filter
 					result_operator = PushFilter(move(result_operator), move(filter));
 					continue;
@@ -577,6 +617,7 @@ JoinOrderOptimizer::GenerateJoins(vector<unique_ptr<LogicalOperator>> &extracted
 				}
 				if (!found_subset) {
 					// could not be split up into left/right
+                    // 谓词不能推到左右两个关系中
 					result_operator = PushFilter(move(result_operator), move(filter));
 					continue;
 				}
@@ -594,11 +635,13 @@ JoinOrderOptimizer::GenerateJoins(vector<unique_ptr<LogicalOperator>> &extracted
 				}
 				// now find the join to push it into
 				auto node = result_operator.get();
+                // 这里？
 				if (node->type == LogicalOperatorType::LOGICAL_FILTER) {
 					node = node->children[0].get();
 				}
 				if (node->type == LogicalOperatorType::LOGICAL_CROSS_PRODUCT) {
 					// turn into comparison join
+                    // 创建一个INNER JOIN
 					auto comp_join = make_unique<LogicalComparisonJoin>(JoinType::INNER);
 					comp_join->children.push_back(move(node->children[0]));
 					comp_join->children.push_back(move(node->children[1]));
@@ -612,7 +655,7 @@ JoinOrderOptimizer::GenerateJoins(vector<unique_ptr<LogicalOperator>> &extracted
 				} else {
 					D_ASSERT(node->type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN);
 					auto &comp_join = (LogicalComparisonJoin &)*node;
-					comp_join.conditions.push_back(move(cond));
+					comp_join.conditions.push_back(move(cond)); // 把新的join condition加进去
 				}
 			}
 		}
@@ -622,7 +665,7 @@ JoinOrderOptimizer::GenerateJoins(vector<unique_ptr<LogicalOperator>> &extracted
 
 unique_ptr<LogicalOperator> JoinOrderOptimizer::RewritePlan(unique_ptr<LogicalOperator> plan, JoinNode *node) {
 	// now we have to rewrite the plan
-	bool root_is_join = plan->children.size() > 1;
+	bool root_is_join = plan->children.size() > 1; // 根节点是否是join?
 
 	// first we will extract all relations from the main plan
 	vector<unique_ptr<LogicalOperator>> extracted_relations;
@@ -634,14 +677,15 @@ unique_ptr<LogicalOperator> JoinOrderOptimizer::RewritePlan(unique_ptr<LogicalOp
 	// perform the final pushdown of remaining filters
 	for (auto &filter : filters) {
 		// check if the filter has already been extracted
-		if (filter) {
+		if (filter) { // nullptr代表已经被move获取所有权了
+            // 剩下的filter加进来
 			// if not we need to push it
 			join_tree.second = PushFilter(move(join_tree.second), move(filter));
 		}
 	}
 
 	// find the first join in the relation to know where to place this node
-	if (root_is_join) {
+	if (root_is_join) { // 这里直接就返回了
 		// first node is the join, return it immediately
 		return move(join_tree.second);
 	}
@@ -649,12 +693,14 @@ unique_ptr<LogicalOperator> JoinOrderOptimizer::RewritePlan(unique_ptr<LogicalOp
 	// have to move up through the relations
 	auto op = plan.get();
 	auto parent = plan.get();
+    // 一直向下移动，直到遇到笛卡尔积和COMPARISON JOIN?
 	while (op->type != LogicalOperatorType::LOGICAL_CROSS_PRODUCT &&
 	       op->type != LogicalOperatorType::LOGICAL_COMPARISON_JOIN) {
 		D_ASSERT(op->children.size() == 1);
 		parent = op;
 		op = op->children[0].get();
 	}
+    // 使用新的join节点替换掉那个节点
 	// have to replace at this node
 	parent->children[0] = move(join_tree.second);
 	return plan;
@@ -666,7 +712,7 @@ unique_ptr<LogicalOperator> JoinOrderOptimizer::RewritePlan(unique_ptr<LogicalOp
 // FIXME: incorporate cardinality estimation into the plans, possibly by pushing samples?
 unique_ptr<LogicalOperator> JoinOrderOptimizer::Optimize(unique_ptr<LogicalOperator> plan) {
 	D_ASSERT(filters.empty() && relations.empty()); // assert that the JoinOrderOptimizer has not been used before
-	LogicalOperator *op = plan.get();
+	LogicalOperator *op = plan.get(); 
 	// now we optimize the current plan
 	// we skip past until we find the first projection, we do this because the HAVING clause inserts a Filter AFTER the
 	// group by and this filter cannot be reordered
@@ -688,8 +734,8 @@ unique_ptr<LogicalOperator> JoinOrderOptimizer::Optimize(unique_ptr<LogicalOpera
 		if (op->type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN) {
 			auto &join = (LogicalComparisonJoin &)*op;
 			D_ASSERT(join.join_type == JoinType::INNER);
-			D_ASSERT(join.expressions.empty());
-			for (auto &cond : join.conditions) {
+			D_ASSERT(join.expressions.empty()); // join的expression为什么是空的
+			for (auto &cond : join.conditions) { // condition？
 				auto comparison =
 				    make_unique<BoundComparisonExpression>(cond.comparison, move(cond.left), move(cond.right));
 				if (filter_set.find(comparison.get()) == filter_set.end()) {
@@ -697,23 +743,24 @@ unique_ptr<LogicalOperator> JoinOrderOptimizer::Optimize(unique_ptr<LogicalOpera
 					filters.push_back(move(comparison));
 				}
 			}
-			join.conditions.clear();
+			join.conditions.clear(); // 清空conditions
 		} else {
+            // 这里面的expression不一定是boundComparsionExpr?
 			for (auto &expression : op->expressions) {
 				if (filter_set.find(expression.get()) == filter_set.end()) {
 					filter_set.insert(expression.get());
 					filters.push_back(move(expression));
 				}
 			}
-			op->expressions.clear();
+			op->expressions.clear(); // 清空OP的表达式
 		}
 	}
 	// create potential edges from the comparisons
-	for (idx_t i = 0; i < filters.size(); i++) {
+	for (idx_t i = 0; i < filters.size(); i++) { // 遍历这些filter表达式
 		auto &filter = filters[i];
-		auto info = make_unique<FilterInfo>();
+		auto info = make_unique<FilterInfo>(); // 创建一个filter info
 		auto filter_info = info.get();
-		filter_infos.push_back(move(info));
+		filter_infos.push_back(move(info)); // push进去
 		// first extract the relation set for the entire filter
 		unordered_set<idx_t> bindings;
 		ExtractBindings(*filter, bindings);
@@ -729,11 +776,13 @@ unique_ptr<LogicalOperator> JoinOrderOptimizer::Optimize(unique_ptr<LogicalOpera
 			if (!left_bindings.empty() && !right_bindings.empty()) {
 				// both the left and the right side have bindings
 				// first create the relation sets, if they do not exist
+                // 注意，如果是COMPARSION，left_set之类的才不会是空
 				filter_info->left_set = set_manager.GetJoinRelation(left_bindings);
 				filter_info->right_set = set_manager.GetJoinRelation(right_bindings);
 				// we can only create a meaningful edge if the sets are not exactly the same
 				if (filter_info->left_set != filter_info->right_set) {
 					// check if the sets are disjoint
+                    // 为什么一定要没有交集
 					if (Disjoint(left_bindings, right_bindings)) {
 						// they are disjoint, we only need to create one set of edges in the join graph
 						query_graph.CreateEdge(filter_info->left_set, filter_info->right_set, filter_info);

@@ -74,6 +74,7 @@ void RowOperations::UnswizzlePointers(const RowLayout &layout, const data_ptr_t 
 		const idx_t next = MinValue<idx_t>(count - done, STANDARD_VECTOR_SIZE);
 		const data_ptr_t row_ptr = base_row_ptr + done * row_width;
 		// Restore heap row pointers
+        // 堆偏移量或者堆指针所在的Offset
 		data_ptr_t heap_ptr_ptr = row_ptr + layout.GetHeapPointerOffset();
 		for (idx_t i = 0; i < next; i++) {
 			heap_row_ptrs[i] = base_heap_ptr + Load<idx_t>(heap_ptr_ptr);

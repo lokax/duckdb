@@ -60,6 +60,7 @@ SortLayout::SortLayout(const vector<BoundOrderByNode> &orders)
 		}
 
 		idx_t col_size = has_null.back() ? 1 : 0;
+        // 前缀长度
 		prefix_lengths.push_back(0);
 		if (!TypeIsConstantSize(physical_type) && physical_type != PhysicalType::VARCHAR) {
 			prefix_lengths.back() = GetNestedSortingColSize(col_size, expr.return_type);
@@ -84,6 +85,7 @@ SortLayout::SortLayout(const vector<BoundOrderByNode> &orders)
 		comparison_size += col_size;
 		column_sizes.push_back(col_size);
 	}
+    // 这个uint32干嘛用的?
 	entry_size = comparison_size + sizeof(uint32_t);
 
 	// 8-byte alignment
@@ -119,7 +121,7 @@ SortLayout::SortLayout(const vector<BoundOrderByNode> &orders)
 			blob_layout_types.push_back(logical_types[col_idx]);
 		}
 	}
-
+    // 普通的RowLayout
 	blob_layout.Initialize(blob_layout_types);
 }
 

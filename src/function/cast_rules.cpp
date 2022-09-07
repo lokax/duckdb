@@ -24,6 +24,7 @@ static int64_t TargetTypeCost(const LogicalType &type) {
 	case LogicalTypeId::LIST:
 		return 160;
 	default:
+        // 有可能有JSON类型，转成JSON不应该比VARCHAR更大，或者相等吗？
 		return 110;
 	}
 }

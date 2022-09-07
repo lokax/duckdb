@@ -215,7 +215,7 @@ static void TemplatedMatch(DataChunk &columns, UnifiedVectorFormat col_data[], c
                            const Predicates &predicates, SelectionVector &sel, idx_t &count, SelectionVector *no_match,
                            idx_t &no_match_count) {
 	for (idx_t col_no = 0; col_no < predicates.size(); ++col_no) {
-		auto &vec = columns.data[col_no];
+		auto &vec = columns.data[col_no]; // 拿出对应的列
 		auto &col = col_data[col_no];
 		switch (predicates[col_no]) {
 		case ExpressionType::COMPARE_EQUAL:

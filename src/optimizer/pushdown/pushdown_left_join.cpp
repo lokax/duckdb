@@ -103,6 +103,7 @@ unique_ptr<LogicalOperator> FilterPushdown::PushdownLeftJoin(unique_ptr<LogicalO
 				// now push down the inner join
 				return PushdownInnerJoin(move(op), left_bindings, right_bindings);
 			}
+            // 否则的话什么都不做
 		}
 	}
 	// finally we check the FilterCombiner to see if there are any predicates we can push into the RHS

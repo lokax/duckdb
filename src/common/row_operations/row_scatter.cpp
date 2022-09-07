@@ -17,6 +17,7 @@ namespace duckdb {
 
 using ValidityBytes = RowLayout::ValidityBytes;
 
+// 和Radix比起来就是Radix会做一些编码操作
 template <class T>
 static void TemplatedScatter(UnifiedVectorFormat &col, Vector &rows, const SelectionVector &sel, const idx_t count,
                              const idx_t col_offset, const idx_t col_no) {
@@ -78,7 +79,9 @@ static void ScatterStringVector(UnifiedVectorFormat &col, Vector &rows, data_ptr
 		} else if (string_data[col_idx].IsInlined()) {
 			Store<string_t>(string_data[col_idx], row + col_offset);
 		} else {
+            // 拿出source的string_t
 			const auto &str = string_data[col_idx];
+            // 注意这里面放进去的是str_location，是在外面就已经分配好的空间
 			string_t inserted((const char *)str_locations[i], str.GetSize());
 			memcpy(inserted.GetDataWriteable(), str.GetDataUnsafe(), str.GetSize());
 			str_locations[i] += str.GetSize();
@@ -99,7 +102,7 @@ static void ScatterNestedVector(Vector &vec, UnifiedVectorFormat &col, Vector &r
 		auto idx = sel.get_index(i);
 		auto row = ptrs[idx];
 		validitymask_locations[i] = row;
-
+        // 这里存的是堆的指针?
 		Store<data_ptr_t>(data_locations[i], row + col_offset);
 	}
 

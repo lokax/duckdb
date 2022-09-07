@@ -59,9 +59,12 @@ inline bool ValuePositionComparator::Possible<duckdb::NotEquals>(const Value &lh
 
 template <>
 inline bool ValuePositionComparator::Final<duckdb::NotEquals>(const Value &lhs, const Value &rhs) {
+    // 这里为什么不算DistinctFrom？
+    // 我觉得这里应该用DistinctFrom
 	return ValueOperations::NotDistinctFrom(lhs, rhs);
 }
 
+// 对于<=而言，先比较<，后用NotDsitinctFrom比较=
 // Non-strict inequalities must use strict comparisons for Definite
 template <>
 bool ValuePositionComparator::Definite<duckdb::LessThanEquals>(const Value &lhs, const Value &rhs) {
@@ -98,6 +101,7 @@ template <class OP>
 static bool TemplatedBooleanOperation(const Value &left, const Value &right) {
 	const auto &left_type = left.type();
 	const auto &right_type = right.type();
+    // 转换类型
 	if (left_type != right_type) {
 		Value left_copy = left;
 		Value right_copy = right;
@@ -139,6 +143,7 @@ static bool TemplatedBooleanOperation(const Value &left, const Value &right) {
 	case PhysicalType::VARCHAR:
 		return OP::Operation(StringValue::Get(left), StringValue::Get(right));
 	case PhysicalType::STRUCT: {
+        // Struct这里特殊处理?
 		auto &left_children = StructValue::GetChildren(left);
 		auto &right_children = StructValue::GetChildren(right);
 		// this should be enforced by the type

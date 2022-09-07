@@ -81,6 +81,7 @@ unique_ptr<ManagedBuffer> AllocateManagedBuffer(DatabaseInstance &db, unique_ptr
 }
 
 BufferHandle BlockHandle::Load(shared_ptr<BlockHandle> &handle, unique_ptr<FileBuffer> reusable_buffer) {
+    // 已经加载过了，直接返回
 	if (handle->state == BlockState::BLOCK_LOADED) {
 		// already loaded
 		D_ASSERT(handle->buffer);
@@ -158,6 +159,8 @@ struct BufferEvictionNode {
 	idx_t timestamp;
 
 	bool CanUnload(BlockHandle &handle_p) {
+        // !=的话，这个时候后面还有一个同样类似的Node包含该block handle
+        // 从LRU的角度来讲，该Handle已经被重新用到了，不应该用它
 		if (timestamp != handle_p.eviction_timestamp) {
 			// handle was used in between
 			return false;
@@ -219,6 +222,7 @@ BufferManager::~BufferManager() {
 }
 
 shared_ptr<BlockHandle> BufferManager::RegisterBlock(block_id_t block_id) {
+    // 加锁
 	lock_guard<mutex> lock(blocks_lock);
 	// check if the block already exists
 	auto entry = blocks.find(block_id);
@@ -230,9 +234,11 @@ shared_ptr<BlockHandle> BufferManager::RegisterBlock(block_id_t block_id) {
 			return existing_ptr;
 		}
 	}
+    // 只是创建一个BlockHandle而已
 	// create a new block pointer for this block
 	auto result = make_shared<BlockHandle>(db, block_id);
 	// register the block pointer in the set of blocks as a weak pointer
+    // 这里只是负责观察而已，不具有所有权
 	blocks[block_id] = weak_ptr<BlockHandle>(result);
 	return result;
 }
@@ -317,11 +323,13 @@ void BufferManager::ReAllocate(shared_ptr<BlockHandle> &handle, idx_t block_size
 BufferHandle BufferManager::Pin(shared_ptr<BlockHandle> &handle) {
 	idx_t required_memory;
 	{
+        // 这里是handle的锁
 		// lock the block
 		lock_guard<mutex> lock(handle->lock);
 		// check if the block is already loaded
 		if (handle->state == BlockState::BLOCK_LOADED) {
 			// the block is loaded, increment the reader count and return a pointer to the handle
+            // 增加readers
 			handle->readers++;
 			return handle->Load(handle);
 		}
@@ -358,6 +366,7 @@ void BufferManager::Unpin(shared_ptr<BlockHandle> &handle) {
 	lock_guard<mutex> lock(handle->lock);
 	D_ASSERT(handle->readers > 0);
 	handle->readers--;
+    // 没人读了，就把这个block handle送进队列里面去
 	if (handle->readers == 0) {
 		AddToEvictionQueue(handle);
 	}
@@ -398,6 +407,7 @@ bool BufferManager::EvictBlocks(idx_t extra_memory, idx_t memory_limit, unique_p
 	return true;
 }
 
+// 修剪队列
 void BufferManager::PurgeQueue() {
 	BufferEvictionNode node;
 	while (true) {
@@ -422,6 +432,7 @@ void BufferManager::UnregisterBlock(block_id_t block_id, bool can_destroy) {
 			DeleteTemporaryFile(block_id);
 		}
 	} else {
+        // 加锁并且erase掉它
 		lock_guard<mutex> lock(blocks_lock);
 		// on-disk block: erase from list of blocks in manager
 		blocks.erase(block_id);

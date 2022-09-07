@@ -27,6 +27,7 @@ public:
 		INVALID
 	};
 
+    //TODO(lokax): 至少每个matcher都要进行匹配
 	/* The double {{}} in the intializer for excluded_entries is intentional, workaround for bug in gcc-4.9 */
 	template <class T, class MATCHER>
 	static bool MatchRecursive(vector<unique_ptr<MATCHER>> &matchers, vector<T *> &entries, vector<T *> &bindings,
@@ -37,6 +38,7 @@ public:
 		}
 		// try to find a match for the current matcher (m_idx)
 		idx_t previous_binding_count = bindings.size();
+        // 遍历每一个表达式
 		for (idx_t e_idx = 0; e_idx < entries.size(); e_idx++) {
 			// first check if this entry has already been matched
 			if (excluded_entries.find(e_idx) != excluded_entries.end()) {
@@ -44,19 +46,23 @@ public:
 				continue;
 			}
 			// otherwise check if the current matcher matches this entry
+            // 当前匹配的是m_idx这个matcher
 			if (matchers[m_idx]->Match(entries[e_idx], bindings)) {
 				// m_idx matches e_idx!
 				// check if we can find a complete match for this path
 				// first add e_idx to the new set of excluded entries
 				unordered_set<idx_t> new_excluded_entries;
-				new_excluded_entries = excluded_entries;
-				new_excluded_entries.insert(e_idx);
+				new_excluded_entries = excluded_entries; // 拷贝
+				new_excluded_entries.insert(e_idx); // 把当前e_idx位置上的表达式排除出去
 				// then match the next matcher in the set
+                // 匹配下一个matcher
 				if (MatchRecursive(matchers, entries, bindings, new_excluded_entries, m_idx + 1)) {
 					// we found a match for this path! success
+                    // 成功直接返回
 					return true;
 				} else {
 					// we did not find a match! remove any bindings we added in the call to Match()
+                    // 把自己弄进来的bindings删除掉，注意previous_binding_count
 					bindings.erase(bindings.begin() + previous_binding_count, bindings.end());
 				}
 			}

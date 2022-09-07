@@ -42,7 +42,7 @@ public:
 
 public:
 	static inline idx_t EntryCount(idx_t count) {
-		return (count + (BITS_PER_VALUE - 1)) / BITS_PER_VALUE;
+		return (count + (BITS_PER_VALUE - 1)) / BITS_PER_VALUE; // 向上取整
 	}
 };
 

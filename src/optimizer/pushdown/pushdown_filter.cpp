@@ -11,6 +11,7 @@ unique_ptr<LogicalOperator> FilterPushdown::PushdownFilter(unique_ptr<LogicalOpe
 	auto &filter = (LogicalFilter &)*op;
 	// filter: gather the filters and remove the filter from the set of operations
 	for (auto &expression : filter.expressions) {
+        // 添加filter进combiner
 		if (AddFilter(move(expression)) == FilterResult::UNSATISFIABLE) {
 			// filter statically evaluates to false, strip tree
 			return make_unique<LogicalEmptyResult>(move(op));

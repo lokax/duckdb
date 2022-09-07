@@ -57,7 +57,7 @@ void Transformer::TransformWindowFrame(duckdb_libpgquery::PGWindowDef *window_sp
 	// finally: specifics of bounds
 	expr->start_expr = TransformExpression(window_spec->startOffset);
 	expr->end_expr = TransformExpression(window_spec->endOffset);
-
+    
 	if ((window_spec->frameOptions & FRAMEOPTION_END_UNBOUNDED_PRECEDING) ||
 	    (window_spec->frameOptions & FRAMEOPTION_START_UNBOUNDED_FOLLOWING)) {
 		throw InternalException(

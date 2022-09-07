@@ -7,7 +7,7 @@
 namespace duckdb {
 
 BoundStatement Binder::Bind(PragmaStatement &stmt) {
-	auto &catalog = Catalog::GetCatalog(context);
+	auto &catalog = Catalog::GetCatalog(context); // 拿到catalog
 	// bind the pragma function
 	auto entry = catalog.GetEntry<PragmaFunctionCatalogEntry>(context, DEFAULT_SCHEMA, stmt.info->name, false);
 	string error;

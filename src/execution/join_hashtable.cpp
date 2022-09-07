@@ -133,7 +133,7 @@ idx_t JoinHashTable::PrepareKeys(DataChunk &keys, unique_ptr<UnifiedVectorFormat
 		return added_count;
 	}
 	for (idx_t i = 0; i < keys.ColumnCount(); i++) {
-		if (!null_values_are_equal[i]) {
+		if (!null_values_are_equal[i]) { // 如果NULL值不相等
 			if (key_data[i].validity.AllValid()) {
 				continue;
 			}
@@ -298,7 +298,7 @@ void JoinHashTable::Finalize() {
 		pinned_handles.push_back(move(handle));
 	}
 
-	finalized = true;
+	finalized = true; // 完成
 }
 
 unique_ptr<ScanStructure> JoinHashTable::Probe(DataChunk &keys) {
@@ -306,7 +306,7 @@ unique_ptr<ScanStructure> JoinHashTable::Probe(DataChunk &keys) {
 	D_ASSERT(finalized);
 
 	// set up the scan structure
-	auto ss = make_unique<ScanStructure>(*this);
+	auto ss = make_unique<ScanStructure>(*this); // 创建ScanState
 
 	if (join_type != JoinType::INNER) {
 		ss->found_match = unique_ptr<bool[]>(new bool[STANDARD_VECTOR_SIZE]);
@@ -450,6 +450,7 @@ void ScanStructure::NextInnerJoin(DataChunk &keys, DataChunk &left, DataChunk &r
 
 	idx_t result_count = ScanInnerJoin(keys, result_vector);
 	if (result_count > 0) {
+        // 如果是外连接
 		if (IsRightOuterJoin(ht.join_type)) {
 			// full/right outer join: mark join matches as FOUND in the HT
 			auto ptrs = FlatVector::GetData<data_ptr_t>(pointers);
@@ -457,6 +458,7 @@ void ScanStructure::NextInnerJoin(DataChunk &keys, DataChunk &left, DataChunk &r
 				auto idx = result_vector.get_index(i);
 				// NOTE: threadsan reports this as a data race because this can be set concurrently by separate threads
 				// Technically it is, but it does not matter, since the only value that can be written is "true"
+                // 存到这个位置进去
 				Store<bool>(true, ptrs[idx] + ht.tuple_size);
 			}
 		}
@@ -735,6 +737,7 @@ void ScanStructure::NextSingleJoin(DataChunk &keys, DataChunk &input, DataChunk 
 	finished = true;
 }
 
+// 右外连接开销有点大，在GetData阶段需要重新扫描整个哈希表
 void JoinHashTable::ScanFullOuter(DataChunk &result, JoinHTScanState &state) {
 	// scan the HT starting from the current position and check which rows from the build side did not find a match
 	Vector addresses(LogicalType::POINTER);

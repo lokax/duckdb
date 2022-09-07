@@ -36,8 +36,9 @@ bool JoinRelationSet::IsSubset(JoinRelationSet *super, JoinRelationSet *sub) {
 }
 
 JoinRelationSet *JoinRelationSetManager::GetJoinRelation(unique_ptr<idx_t[]> relations, idx_t count) {
+    // 这个东西好像是字典树
 	// now look it up in the tree
-	JoinRelationTreeNode *info = &root;
+	JoinRelationTreeNode *info = &root; // 从根节点开始
 	for (idx_t i = 0; i < count; i++) {
 		auto entry = info->children.find(relations[i]);
 		if (entry == info->children.end()) {
@@ -72,7 +73,7 @@ JoinRelationSet *JoinRelationSetManager::GetJoinRelation(unordered_set<idx_t> &b
 	for (auto &entry : bindings) {
 		relations[count++] = entry;
 	}
-	std::sort(relations.get(), relations.get() + count);
+	std::sort(relations.get(), relations.get() + count); // 排序
 	return GetJoinRelation(move(relations), count);
 }
 

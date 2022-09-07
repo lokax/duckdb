@@ -52,14 +52,21 @@ unique_ptr<LogicalOperator> LogicalComparisonJoin::CreateJoin(JoinType type, uni
 	for (auto &expr : expressions) {
 		auto total_side = JoinSide::GetJoinSide(*expr, left_bindings, right_bindings);
 		if (total_side != JoinSide::BOTH) {
+            // 这里下推应该是没问题的
+            // 并且生成的Join每次都总是左外连接，因为效率更高一点
+            // 优化器可能会变成右外连接，如果right table基数太大的话
 			// join condition does not reference both sides, add it as filter under the join
-			if (type == JoinType::LEFT && total_side == JoinSide::RIGHT) {
+			// 为什么total_size是左边的时候不能下推?
+            // SELECT * FROM test t1 LEFT OUTER JOIN test t2 ON t1.x > 1;
+            // 上面这个case是不能下推的一个原因
+            // 因为左外连接永远保留左边的所有数据，如果下推，左边的数据就不完整了
+            if (type == JoinType::LEFT && total_side == JoinSide::RIGHT) {
 				// filter is on RHS and the join is a LEFT OUTER join, we can push it in the right child
 				if (right_child->type != LogicalOperatorType::LOGICAL_FILTER) {
 					// not a filter yet, push a new empty filter
 					auto filter = make_unique<LogicalFilter>();
 					filter->AddChild(move(right_child));
-					right_child = move(filter);
+					right_child = move(filter); // right child变成filter
 				}
 				// push the expression into the filter
 				auto &filter = (LogicalFilter &)*right_child;
@@ -152,12 +159,14 @@ static bool HasCorrelatedColumns(Expression &expression) {
 unique_ptr<LogicalOperator> Binder::CreatePlan(BoundJoinRef &ref) {
 	auto left = CreatePlan(*ref.left);
 	auto right = CreatePlan(*ref.right);
+    // 这里进行交换，变成左外连接
 	if (ref.type == JoinType::RIGHT && ClientConfig::GetConfig(context).enable_optimizer) {
 		// we turn any right outer joins into left outer joins for optimization purposes
 		// they are the same but with sides flipped, so treating them the same simplifies life
 		ref.type = JoinType::LEFT;
 		std::swap(left, right);
 	}
+    // 这里后续由优化器来生成join?
 	if (ref.type == JoinType::INNER && (ref.condition->HasSubquery() || HasCorrelatedColumns(*ref.condition))) {
 		// inner join, generate a cross product + filter
 		// this will be later turned into a proper join by the join order optimizer

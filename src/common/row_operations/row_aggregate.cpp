@@ -5,15 +5,15 @@
 //
 //
 //===----------------------------------------------------------------------===//
-#include "duckdb/common/row_operations/row_operations.hpp"
-
-#include "duckdb/common/types/row_layout.hpp"
 #include "duckdb/catalog/catalog_entry/aggregate_function_catalog_entry.hpp"
+#include "duckdb/common/row_operations/row_operations.hpp"
+#include "duckdb/common/types/row_layout.hpp"
 #include "duckdb/execution/expression_executor.hpp"
 #include "duckdb/execution/operator/aggregate/aggregate_object.hpp"
 
 namespace duckdb {
 
+//
 void RowOperations::InitializeStates(RowLayout &layout, Vector &addresses, const SelectionVector &sel, idx_t count) {
 	if (count == 0) {
 		return;
@@ -49,16 +49,12 @@ void RowOperations::DestroyStates(RowLayout &layout, Vector &addresses, idx_t co
 
 void RowOperations::UpdateStates(AggregateObject &aggr, Vector &addresses, DataChunk &payload, idx_t arg_idx,
                                  idx_t count) {
-<<<<<<< HEAD
-                                        // 注意这里面传进去的是payload.data的指针哦！
-	aggr.function.update(aggr.child_count == 0 ? nullptr : &payload.data[arg_idx], aggr.bind_data, aggr.child_count,
-=======
+
 	AggregateInputData aggr_input_data(aggr.bind_data);
 	aggr.function.update(aggr.child_count == 0 ? nullptr : &payload.data[arg_idx], aggr_input_data, aggr.child_count,
->>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 	                     addresses, count);
 }
-
+// 这里做过滤
 void RowOperations::UpdateFilteredStates(AggregateFilterData &filter_data, AggregateObject &aggr, Vector &addresses,
                                          DataChunk &payload, idx_t arg_idx) {
 	idx_t count = filter_data.ApplyFilter(payload);
@@ -75,12 +71,13 @@ void RowOperations::CombineStates(RowLayout &layout, Vector &sources, Vector &ta
 	}
 
 	//	Move to the first aggregate states
-	VectorOperations::AddInPlace(sources, layout.GetAggrOffset(), count); 
-    // 在地址上加上一个到Aggr的Offset
+	VectorOperations::AddInPlace(sources, layout.GetAggrOffset(), count);
+	// 在地址上加上一个到Aggr的Offset
 	VectorOperations::AddInPlace(targets, layout.GetAggrOffset(), count);
 	for (auto &aggr : layout.GetAggregates()) {
 		D_ASSERT(aggr.function.combine);
 		AggregateInputData aggr_input_data(aggr.bind_data);
+        // 调用combine
 		aggr.function.combine(sources, targets, aggr_input_data, count);
 
 		// Move to the next aggregate states
@@ -98,6 +95,7 @@ void RowOperations::FinalizeStates(RowLayout &layout, Vector &addresses, DataChu
 		auto &target = result.data[aggr_idx + i];
 		auto &aggr = aggregates[i];
 		AggregateInputData aggr_input_data(aggr.bind_data);
+        // 调用Finalize
 		aggr.function.finalize(addresses, aggr_input_data, target, result.size(), 0);
 
 		// Move to the next aggregate state

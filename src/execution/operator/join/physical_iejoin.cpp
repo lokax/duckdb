@@ -25,9 +25,9 @@ PhysicalIEJoin::PhysicalIEJoin(LogicalOperator &op, unique_ptr<PhysicalOperator>
 	lhs_orders.resize(2);
 	rhs_orders.resize(2);
 	for (idx_t i = 0; i < 2; ++i) {
-		auto &cond = conditions[i];
+		auto &cond = conditions[i]; // 拿到join conditions
 		D_ASSERT(cond.left->return_type == cond.right->return_type);
-		join_key_types.push_back(cond.left->return_type);
+		join_key_types.push_back(cond.left->return_type); // 左边的返回类型
 
 		// Convert the conditions to sort orders
 		auto left = cond.left->Copy();
@@ -50,6 +50,7 @@ PhysicalIEJoin::PhysicalIEJoin(LogicalOperator &op, unique_ptr<PhysicalOperator>
 		default:
 			throw NotImplementedException("Unimplemented join type for IEJoin");
 		}
+		// NULL的数据排到最后去
 		lhs_orders[i].emplace_back(BoundOrderByNode(sense, OrderByNullType::NULLS_LAST, move(left)));
 		rhs_orders[i].emplace_back(BoundOrderByNode(sense, OrderByNullType::NULLS_LAST, move(right)));
 	}
@@ -57,7 +58,7 @@ PhysicalIEJoin::PhysicalIEJoin(LogicalOperator &op, unique_ptr<PhysicalOperator>
 	for (idx_t i = 2; i < conditions.size(); ++i) {
 		auto &cond = conditions[i];
 		D_ASSERT(cond.left->return_type == cond.right->return_type);
-		join_key_types.push_back(cond.left->return_type);
+		join_key_types.push_back(cond.left->return_type); // join_key_types存的都是左连接条件表达式的返回类型
 	}
 }
 
@@ -73,7 +74,7 @@ public:
 	}
 
 	//! The local sort state
-	LocalSortedTable table;
+	LocalSortedTable table; // 本地的排序表
 };
 
 class IEJoinGlobalState : public GlobalSinkState {
@@ -84,7 +85,7 @@ public:
 	IEJoinGlobalState(ClientContext &context, const PhysicalIEJoin &op) : child(0) {
 		tables.resize(2);
 		RowLayout lhs_layout;
-		lhs_layout.Initialize(op.children[0]->types);
+		lhs_layout.Initialize(op.children[0]->types); // 左孩子
 		vector<BoundOrderByNode> lhs_order;
 		lhs_order.emplace_back(op.lhs_orders[0][0].Copy());
 		tables[0] = make_unique<GlobalSortedTable>(context, lhs_order, lhs_layout);
@@ -174,7 +175,8 @@ SinkFinalizeType PhysicalIEJoin::Finalize(Pipeline &pipeline, Event &event, Clie
 	table.Finalize(pipeline, event);
 
 	// Move to the next input child
-	++gstate.child;
+	++gstate.child; // 移到下一个孩子？
+	                // 这里肯定和BuildPipeline怎么构建有点关系的
 
 	return SinkFinalizeType::READY;
 }
@@ -185,6 +187,7 @@ SinkFinalizeType PhysicalIEJoin::Finalize(Pipeline &pipeline, Event &event, Clie
 OperatorResultType PhysicalIEJoin::Execute(ExecutionContext &context, DataChunk &input, DataChunk &chunk,
                                            GlobalOperatorState &gstate, OperatorState &state) const {
 	return OperatorResultType::FINISHED;
+	// 探测直接完成？
 }
 
 //===--------------------------------------------------------------------===//
@@ -196,6 +199,7 @@ struct IEJoinUnion {
 	static idx_t AppendKey(SortedTable &table, ExpressionExecutor &executor, SortedTable &marked, int64_t increment,
 	                       int64_t base, const idx_t block_idx);
 
+	// 归并
 	static void Sort(SortedTable &table) {
 		auto &global_sort_state = table.global_sort_state;
 		global_sort_state.PrepareMergePhase();
@@ -274,12 +278,12 @@ struct IEJoinUnion {
 
 idx_t IEJoinUnion::AppendKey(SortedTable &table, ExpressionExecutor &executor, SortedTable &marked, int64_t increment,
                              int64_t base, const idx_t block_idx) {
-	LocalSortState local_sort_state;
+	LocalSortState local_sort_state; // 本地排序表
 	local_sort_state.Initialize(marked.global_sort_state, marked.global_sort_state.buffer_manager);
 
 	// Reading
-	const auto valid = table.count - table.has_null;
-	auto &gstate = table.global_sort_state;
+	const auto valid = table.count - table.has_null; // 多少条数据的非NULL的
+	auto &gstate = table.global_sort_state;          // 全局排序表状态
 	PayloadScanner scanner(gstate, block_idx);
 	auto table_idx = block_idx * gstate.block_capacity;
 
@@ -292,7 +296,7 @@ idx_t IEJoinUnion::AppendKey(SortedTable &table, ExpressionExecutor &executor, S
 
 	const auto &payload_types = local_sort_state.payload_layout->GetTypes();
 	types.insert(types.end(), payload_types.begin(), payload_types.end());
-	const idx_t rid_idx = types.size() - 1;
+	const idx_t rid_idx = types.size() - 1; // rid ?是什么
 
 	DataChunk keys;
 	DataChunk payload;
@@ -300,6 +304,7 @@ idx_t IEJoinUnion::AppendKey(SortedTable &table, ExpressionExecutor &executor, S
 
 	idx_t inserted = 0;
 	for (auto rid = base; table_idx < valid;) {
+		// 扫描排序表
 		scanner.Scan(scanned);
 
 		// NULLs are at the end, so stop when we reach them
@@ -351,7 +356,7 @@ IEJoinUnion::IEJoinUnion(ClientContext &context, const PhysicalIEJoin &op, Sorte
 	// We only join the two block numbers and use the sizes of the blocks as the counts
 
 	// 0. Filter out tables with no overlap
-	if (!t1.BlockSize(b1) || !t2.BlockSize(b2)) {
+	if (!t1.BlockSize(b1) || !t2.BlockSize(b2)) { // 任何一边没有数据，直接返回
 		return;
 	}
 
@@ -361,13 +366,15 @@ IEJoinUnion::IEJoinUnion(ClientContext &context, const PhysicalIEJoin &op, Sorte
 
 	// t1.X[0] op1 t2.X'[-1]
 	bounds1.SetIndex(bounds1.block_capacity * b1);
-	bounds2.SetIndex(bounds2.block_capacity * b2 + t2.BlockSize(b2) - 1);
-	if (!bounds1.Compare(bounds2)) {
+	bounds2.SetIndex(bounds2.block_capacity * b2 + t2.BlockSize(b2) - 1); // 最后一条数据
+	// 假设op1是大于，那么t1和t2已经按照x或者x'逆序排了
+	// 也就是说t1的x最大值都不大于t2的x'的最小值，那么这里就直接返回
+	if (!bounds1.Compare(bounds2)) { // 比较不成功，直接返回
 		return;
 	}
 
 	// 1. let L1 (resp. L2) be the array of column X (resp. Y )
-	const auto &order1 = op.lhs_orders[0][0];
+	const auto &order1 = op.lhs_orders[0][0]; // 顺序node
 	const auto &order2 = op.lhs_orders[1][0];
 
 	// 2. if (op1 ∈ {>, ≥}) sort L1 in descending order
@@ -377,28 +384,30 @@ IEJoinUnion::IEJoinUnion(ClientContext &context, const PhysicalIEJoin &op, Sorte
 	//		X/X', Y/Y', R/R'/Li
 	// The first position is the sort key.
 	vector<LogicalType> types;
-	types.emplace_back(order2.expression->return_type);
-	types.emplace_back(LogicalType::BIGINT);
+	types.emplace_back(order2.expression->return_type); // 这个是Y?
+	types.emplace_back(LogicalType::BIGINT);            // 这里是rid的类型？
 	RowLayout payload_layout;
-	payload_layout.Initialize(types);
+	payload_layout.Initialize(types); // payload是Y和rid?
 
 	// Sort on the first expression
+	// 来排? 不算已经排过了吗？
 	auto ref = make_unique<BoundReferenceExpression>(order1.expression->return_type, 0);
 	vector<BoundOrderByNode> orders;
 	orders.emplace_back(BoundOrderByNode(order1.type, order1.null_order, move(ref)));
 
+	// 创建SortTable
 	l1 = make_unique<SortedTable>(context, orders, payload_layout);
-
+	// 这里的RID是tuple id的意思吧，不重排实际的数据，而是重排RID
 	// LHS has positive rids
 	ExpressionExecutor l_executor(allocator);
-	l_executor.AddExpression(*order1.expression);
-	l_executor.AddExpression(*order2.expression);
-	AppendKey(t1, l_executor, *l1, 1, 1, b1);
+	l_executor.AddExpression(*order1.expression); // X
+	l_executor.AddExpression(*order2.expression); // Y
+	AppendKey(t1, l_executor, *l1, 1, 1, b1);     // 1 1 ?
 
 	// RHS has negative rids
 	ExpressionExecutor r_executor(allocator);
-	r_executor.AddExpression(*op.rhs_orders[0][0].expression);
-	r_executor.AddExpression(*op.rhs_orders[1][0].expression);
+	r_executor.AddExpression(*op.rhs_orders[0][0].expression); // X'
+	r_executor.AddExpression(*op.rhs_orders[1][0].expression); // Y'
 	AppendKey(t2, r_executor, *l1, -1, -1, b2);
 
 	Sort(*l1);
@@ -407,7 +416,7 @@ IEJoinUnion::IEJoinUnion(ClientContext &context, const PhysicalIEJoin &op, Sorte
 	off1 = make_unique<SBIterator>(l1->global_sort_state, cmp1);
 
 	// We don't actually need the L1 column, just its sort key, which is in the sort blocks
-	li = ExtractColumn<int64_t>(*l1, types.size() - 1);
+	li = ExtractColumn<int64_t>(*l1, types.size() - 1); // 拿到rid ? rid已经被重排了
 
 	// 4. if (op2 ∈ {>, ≥}) sort L2 in ascending order
 	// 5. else if (op2 ∈ {<, ≤}) sort L2 in descending order
@@ -416,7 +425,7 @@ IEJoinUnion::IEJoinUnion(ClientContext &context, const PhysicalIEJoin &op, Sorte
 	// For this we just need a two-column table of Y, P
 	types.clear();
 	types.emplace_back(LogicalType::BIGINT);
-	payload_layout.Initialize(types);
+	payload_layout.Initialize(types); // 这里的Payload只要RID，不用Y了?
 
 	// Sort on the first expression
 	orders.clear();
@@ -436,14 +445,17 @@ IEJoinUnion::IEJoinUnion(ClientContext &context, const PhysicalIEJoin &op, Sorte
 	// We don't actually need the L2 column, just its sort key, which is in the sort blocks
 
 	// 6. compute the permutation array P of L2 w.r.t. L1
-	p = ExtractColumn<idx_t>(*l2, types.size() - 1);
+	p = ExtractColumn<idx_t>(*l2, types.size() - 1); // 得到permutation array
 
 	// 7. initialize bit-array B (|B| = n), and set all bits to 0
-	n = l2->count.load();
+	n = l2->count.load(); // n 是L2的数据量
+	                      // n是两张sortedTable的总数据量?
+	// bit array是n的entry长度
 	bit_array.resize(ValidityMask::EntryCount(n), 0);
 	bit_mask.Initialize(bit_array.data());
 
 	// Bloom filter
+	// 向上取整
 	bloom_count = (n + (BLOOM_CHUNK_BITS - 1)) / BLOOM_CHUNK_BITS;
 	bloom_array.resize(ValidityMask::EntryCount(bloom_count), 0);
 	bloom_filter.Initialize(bloom_array.data());
@@ -459,14 +471,15 @@ IEJoinUnion::IEJoinUnion(ClientContext &context, const PhysicalIEJoin &op, Sorte
 
 idx_t IEJoinUnion::SearchL1(idx_t pos) {
 	// Perform an exponential search in the appropriate direction
-	op1->SetIndex(pos);
+	op1->SetIndex(pos); // l1所在的位置
 
-	idx_t step = 1;
+	idx_t step = 1; // 步长？
 	auto hi = pos;
 	auto lo = pos;
+	// 带equal的，比如<= ,>=
 	if (!op1->cmp) {
 		// Scan left for loose inequality
-		lo -= MinValue(step, lo);
+		lo -= MinValue(step, lo); // 一开始这里-1，除非lo是0
 		step *= 2;
 		off1->SetIndex(lo);
 		while (lo > 0 && op1->Compare(*off1)) {
@@ -507,9 +520,11 @@ idx_t IEJoinUnion::SearchL1(idx_t pos) {
 bool IEJoinUnion::NextRow() {
 	for (; i < n; ++i) {
 		// 12. pos ← P[i]
-		auto pos = p[i];
-		lrid = li[pos];
-		if (lrid < 0) {
+		auto pos = p[i]; // 在L1中的位置
+		                 // li是按照X和X'去排的
+		lrid = li[pos];  // 看下这个位置的RID是多少
+		                 // 循环直到遇到t1的数据
+		if (lrid < 0) {  // <0是t2的数据?,忽略掉?
 			continue;
 		}
 
@@ -520,9 +535,9 @@ bool IEJoinUnion::NextRow() {
 				break;
 			}
 			const auto p2 = p[off2->GetIndex()];
-			if (li[p2] < 0) {
+			if (li[p2] < 0) { // < 0是右边的数据
 				// Only mark rhs matches.
-				bit_mask.SetValid(p2);
+				bit_mask.SetValid(p2); // 设置成有效
 				bloom_filter.SetValid(p2 / BLOOM_CHUNK_BITS);
 			}
 		}
@@ -592,6 +607,7 @@ idx_t IEJoinUnion::JoinComplexBlocks(SelectionVector &lsel, SelectionVector &rse
 
 			//	Use the Bloom filter to find candidate blocks
 			while (j < n) {
+                // 这个优化有点意思
 				auto bloom_begin = NextValid(bloom_filter, j / BLOOM_CHUNK_BITS, bloom_count) * BLOOM_CHUNK_BITS;
 				auto bloom_end = MinValue<idx_t>(n, bloom_begin + BLOOM_CHUNK_BITS);
 
@@ -606,15 +622,18 @@ idx_t IEJoinUnion::JoinComplexBlocks(SelectionVector &lsel, SelectionVector &rse
 				break;
 			}
 
+			// 相同符号来自相同表
 			// Filter out tuples with the same sign (they come from the same table)
 			const auto rrid = li[j];
 			++j;
 
 			// 15. add tuples w.r.t. (L1[j], L1[i]) to join result
 			if (lrid > 0 && rrid < 0) {
+				// 设置位置
 				lsel.set_index(result_count, sel_t(+lrid - 1));
 				rsel.set_index(result_count, sel_t(-rrid - 1));
 				++result_count;
+				// 满1024则跳出去
 				if (result_count == STANDARD_VECTOR_SIZE) {
 					// out of space!
 					return result_count;
@@ -711,12 +730,13 @@ void PhysicalIEJoin::ResolveComplexJoin(ExecutionContext &context, DataChunk &ch
 	auto &left_table = *ie_sink.tables[0];
 	auto &right_table = *ie_sink.tables[1];
 
+	// 左表的列数
 	const auto left_cols = children[0]->GetTypes().size();
 	do {
 		SelectionVector lsel(STANDARD_VECTOR_SIZE);
 		SelectionVector rsel(STANDARD_VECTOR_SIZE);
 		auto result_count = state.joiner->JoinComplexBlocks(lsel, rsel);
-		if (result_count == 0) {
+		if (result_count == 0) { // 没有结果，直接返回
 			// exhausted this pair
 			return;
 		}
@@ -787,22 +807,23 @@ public:
 	}
 
 	void Initialize(IEJoinGlobalState &sink_state) {
-		lock_guard<mutex> initializing(lock);
+		lock_guard<mutex> initializing(lock); // 加锁
 		if (initialized) {
-			return;
+			return; // 已经初始化过了，直接返回
 		}
 
 		// Compute the starting row for reach block
 		// (In theory these are all the same size, but you never know...)
-		auto &left_table = *sink_state.tables[0];
-		const auto left_blocks = left_table.BlockCount();
+		auto &left_table = *sink_state.tables[0];         // 左边的排序表
+		const auto left_blocks = left_table.BlockCount(); // 左边排序表的块数
 		idx_t left_base = 0;
 
 		for (size_t lhs = 0; lhs < left_blocks; ++lhs) {
-			left_bases.emplace_back(left_base);
+			left_bases.emplace_back(left_base); // 记录起初位置
 			left_base += left_table.BlockSize(lhs);
 		}
 
+		// 同理
 		auto &right_table = *sink_state.tables[1];
 		const auto right_blocks = right_table.BlockCount();
 		idx_t right_base = 0;
@@ -813,7 +834,7 @@ public:
 
 		// Outer join block counts
 		if (left_table.found_match) {
-			left_outers = left_blocks;
+			left_outers = left_blocks; // 左边排序表的块数
 		}
 
 		if (right_table.found_match) {
@@ -832,12 +853,12 @@ public:
 	}
 
 	void GetNextPair(ClientContext &client, IEJoinGlobalState &gstate, IEJoinLocalSourceState &lstate) {
-		auto &left_table = *gstate.tables[0];
-		auto &right_table = *gstate.tables[1];
+		auto &left_table = *gstate.tables[0];  // 左边排序表
+		auto &right_table = *gstate.tables[1]; // 右表排序表
 
-		const auto left_blocks = left_table.BlockCount();
-		const auto right_blocks = right_table.BlockCount();
-		const auto pair_count = left_blocks * right_blocks;
+		const auto left_blocks = left_table.BlockCount();   // 块数
+		const auto right_blocks = right_table.BlockCount(); // 块数
+		const auto pair_count = left_blocks * right_blocks; // 对的个数
 
 		// Regular block
 		const auto i = next_pair++;
@@ -854,11 +875,11 @@ public:
 			lstate.joiner = make_unique<IEJoinUnion>(client, op, left_table, b1, right_table, b2);
 			return;
 		} else {
-			--next_pair;
+			--next_pair; // 这是什么情况，应该是外连接的情况，上面next_pair++，这里做回滚
 		}
 
 		// Outer joins
-		if (!left_outers && !right_outers) {
+		if (!left_outers && !right_outers) { // 不少外连接的情况，直接返回
 			return;
 		}
 
@@ -868,7 +889,7 @@ public:
 		}
 
 		// Left outer blocks
-		const auto l = next_left++;
+		const auto l = next_left++; // 注意这里是next_left
 		if (l < left_outers) {
 			lstate.left_block_index = l;
 			lstate.left_base = left_bases[l];
@@ -950,10 +971,10 @@ void PhysicalIEJoin::GetData(ExecutionContext &context, DataChunk &result, Globa
 	while (ie_lstate.joiner) {
 		ResolveComplexJoin(context, result, ie_lstate);
 
-		if (result.size()) {
+		if (result.size()) { // 有结果就直接返回了
 			return;
 		}
-
+		// 没有结果就完成当前块，获取下一刻继续开始
 		ie_gstate.PairCompleted(context.client, ie_sink, ie_lstate);
 	}
 
@@ -1027,6 +1048,7 @@ void PhysicalIEJoin::BuildPipelines(Executor &executor, Pipeline &current, Pipel
 	children[1]->BuildPipelines(executor, *rhs_pipeline, state);
 
 	// RHS => LHS => current
+    // current依赖rhs,rhs依赖lhs
 	current.AddDependency(rhs_pipeline);
 	rhs_pipeline->AddDependency(lhs_pipeline);
 

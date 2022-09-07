@@ -50,7 +50,8 @@ public:
 	}
 };
 
-Pipeline::Pipeline(Executor &executor_p) : executor(executor_p), ready(false), source(nullptr), sink(nullptr) {
+Pipeline::Pipeline(Executor &executor_p)
+    : executor(executor_p), ready(false), initialized(false), source(nullptr), sink(nullptr) {
 }
 
 ClientContext &Pipeline::GetClientContext() {
@@ -59,10 +60,13 @@ ClientContext &Pipeline::GetClientContext() {
 
 bool Pipeline::GetProgress(double &current_percentage, idx_t &source_cardinality) {
 	D_ASSERT(source);
-
+	source_cardinality = source->estimated_cardinality;
+	if (!initialized) {
+		current_percentage = 0;
+		return true;
+	}
 	auto &client = executor.context;
 	current_percentage = source->GetProgress(client, *source_state);
-	source_cardinality = source->estimated_cardinality;
 	return current_percentage >= 0;
 }
 
@@ -117,6 +121,7 @@ bool Pipeline::IsOrderDependent() const {
 void Pipeline::Schedule(shared_ptr<Event> &event) {
 	D_ASSERT(ready);
 	D_ASSERT(sink);
+	Reset();
 	if (!ScheduleParallel(event)) {
 		// could not parallelize this pipeline: push a sequential task instead
 		ScheduleSequentialTask(event);
@@ -154,8 +159,8 @@ void Pipeline::Reset() {
 			op->op_state = op->GetGlobalOperatorState(GetClientContext());
 		}
 	}
-
 	ResetSource();
+	initialized = true;
 }
 
 void Pipeline::ResetSource() {
@@ -168,7 +173,6 @@ void Pipeline::Ready() {
 	}
 	ready = true;
 	std::reverse(operators.begin(), operators.end());
-	Reset();
 }
 
 void Pipeline::Finalize(Event &event) {

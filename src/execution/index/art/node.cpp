@@ -239,7 +239,7 @@ SwizzleablePointer &SwizzleablePointer::operator=(const Node *ptr) {
 	if (sizeof(ptr) == 4) {
 		pointer = (uint32_t)(size_t)ptr;
 	} else {
-		pointer = (uint64_t)ptr;
+		pointer = (uint64_t)ptr; // 必须保证最高位地址是0？
 	}
 	return *this;
 }
