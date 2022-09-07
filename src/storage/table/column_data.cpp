@@ -105,11 +105,7 @@ idx_t ColumnData::ScanVector(Transaction *transaction, idx_t vector_index, Colum
 		if (!ALLOW_UPDATES && updates->HasUncommittedUpdates(vector_index)) { // 不允许更新，但是有未提交的更新则抛异常
 			throw TransactionException("Cannot create index with outstanding updates");
 		}
-<<<<<<< HEAD
-		result.Normalify(scan_count); // 变长flat vector
-=======
 		result.Flatten(scan_count);
->>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 		if (SCAN_COMMITTED) {
 			updates->FetchCommitted(vector_index, result); // 从base info中获取最新数据，包括未提交的更新
 		} else {
@@ -162,13 +158,8 @@ idx_t ColumnData::ScanCount(ColumnScanState &state, Vector &result, idx_t count)
 
 void ColumnData::Select(Transaction &transaction, idx_t vector_index, ColumnScanState &state, Vector &result,
                         SelectionVector &sel, idx_t &count, const TableFilter &filter) {
-<<<<<<< HEAD
-	idx_t scan_count = Scan(transaction, vector_index, state, result); // 正常扫描数据
-	result.Normalify(scan_count);
-=======
 	idx_t scan_count = Scan(transaction, vector_index, state, result);
 	result.Flatten(scan_count);
->>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 	ColumnSegment::FilterSelection(sel, result, filter, count, FlatVector::Validity(result));
 }
 

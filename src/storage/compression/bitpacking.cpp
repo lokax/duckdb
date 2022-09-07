@@ -21,12 +21,8 @@ static constexpr const idx_t BITPACKING_METADATA_GROUP_SIZE = 1024;
 
 struct EmptyBitpackingWriter {
 	template <class T>
-<<<<<<< HEAD
-	static void Operation(T *values, bool *validity, bitpacking_width_t width, idx_t count, void *data_ptr) { // 不做任何事情
-=======
 	static void Operation(T *values, bool *validity, bitpacking_width_t width, T frame_of_reference, idx_t count,
 	                      void *data_ptr) {
->>>>>>> a086308b550a09dd825a502d32277493e9c4002f
 	}
 };
 
@@ -37,13 +33,8 @@ public:
 		ResetMinMax();
 	}
 
-<<<<<<< HEAD
-	T compression_buffer[BITPACKING_WIDTH_GROUP_SIZE]; // 存实际的数据
-	bool compression_buffer_validity[BITPACKING_WIDTH_GROUP_SIZE]; // 表明是不是null
-=======
-	T compression_buffer[BITPACKING_METADATA_GROUP_SIZE];
-	bool compression_buffer_validity[BITPACKING_METADATA_GROUP_SIZE];
->>>>>>> a086308b550a09dd825a502d32277493e9c4002f
+	T compression_buffer[BITPACKING_METADATA_GROUP_SIZE];// 存实际的数据
+	bool compression_buffer_validity[BITPACKING_METADATA_GROUP_SIZE]; // 表明是不是null
 	idx_t compression_buffer_idx;
 	idx_t total_size;
 	void *data_ptr;
@@ -123,11 +114,7 @@ public:
 			compression_buffer[compression_buffer_idx++] = 0;
 		}
 
-<<<<<<< HEAD
-		if (compression_buffer_idx == BITPACKING_WIDTH_GROUP_SIZE) { // = 1024
-=======
 		if (compression_buffer_idx == BITPACKING_METADATA_GROUP_SIZE) {
->>>>>>> a086308b550a09dd825a502d32277493e9c4002f
 			// Calculate bitpacking width;
 			Flush<OP>();
 		}
@@ -275,33 +262,17 @@ public:
 		auto &state = checkpointer.GetCheckpointState();
 		auto dataptr = handle.Ptr();
 
-<<<<<<< HEAD
-		// Compact the segment by moving the widths next to the data.
-		idx_t minimal_widths_offset = AlignValue(data_ptr - dataptr);
-		idx_t widths_size = dataptr + Storage::BLOCK_SIZE - width_ptr - 1;
-		idx_t total_segment_size = minimal_widths_offset + widths_size;
-<<<<<<< HEAD
-        // 将末尾的width数组移到紧跟着data后面
-		memmove(handle->node->buffer + minimal_widths_offset, width_ptr + 1, widths_size);
 
-		// Store the offset of the first width (which is at the highest address).
-        // 一开始在BLOCK的开头留了8个字节,将第一个width的offset存在这里
-		Store<idx_t>(minimal_widths_offset + widths_size - 1, handle->node->buffer);
-		handle.reset();
-=======
 		memmove(dataptr + minimal_widths_offset, width_ptr + 1, widths_size);
-=======
 		// Compact the segment by moving the metadata next to the data.
 		idx_t metadata_offset = AlignValue(data_ptr - dataptr);
 		idx_t metadata_size = dataptr + Storage::BLOCK_SIZE - metadata_ptr - 1;
 		idx_t total_segment_size = metadata_offset + metadata_size;
 		memmove(dataptr + metadata_offset, metadata_ptr + 1, metadata_size);
->>>>>>> a086308b550a09dd825a502d32277493e9c4002f
 
 		// Store the offset of the metadata of the first group (which is at the highest address).
 		Store<idx_t>(metadata_offset + metadata_size - 1, dataptr);
 		handle.Destroy();
->>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 
 		state.FlushSegment(move(current_segment), total_segment_size);
 	}

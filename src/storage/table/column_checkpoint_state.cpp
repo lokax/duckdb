@@ -21,17 +21,12 @@ ColumnCheckpointState::ColumnCheckpointState(RowGroup &row_group, ColumnData &co
 ColumnCheckpointState::~ColumnCheckpointState() {
 }
 
-<<<<<<< HEAD
-void ColumnCheckpointState::
-FlushSegment(unique_ptr<ColumnSegment> segment, idx_t segment_size) {
-=======
 unique_ptr<BaseStatistics> ColumnCheckpointState::GetStatistics() {
 	D_ASSERT(global_stats);
 	return move(global_stats);
 }
 
 void ColumnCheckpointState::FlushSegment(unique_ptr<ColumnSegment> segment, idx_t segment_size) {
->>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 	D_ASSERT(segment_size <= Storage::BLOCK_SIZE);
 	auto tuple_count = segment->count.load();
 	if (tuple_count == 0) { // LCOV_EXCL_START

@@ -37,28 +37,20 @@ struct PipelineEventStack {
 	Event *pipeline_complete_event;
 };
 
-<<<<<<< HEAD
-Pipeline *Executor::ScheduleUnionPipeline(const shared_ptr<Pipeline> &pipeline, const Pipeline *parent,
-                                          event_map_t &event_map, vector<shared_ptr<Event>> &events) {
-	pipeline->Ready();
-    // 如果看不懂，可以去看Push Based的PR
-=======
 using event_map_t = unordered_map<const Pipeline *, PipelineEventStack>;
 
 struct ScheduleEventData {
 	ScheduleEventData(const vector<shared_ptr<Pipeline>> &pipelines,
 	                  unordered_map<Pipeline *, vector<shared_ptr<Pipeline>>> &child_pipelines,
 	                  unordered_map<Pipeline *, vector<shared_ptr<Pipeline>>> &union_pipelines,
-	                  unordered_map<Pipeline *, vector<Pipeline *>> &child_dependencies,
 	                  vector<shared_ptr<Event>> &events, bool initial_schedule)
-	    : pipelines(pipelines), child_pipelines(child_pipelines), union_pipelines(union_pipelines),
-	      child_dependencies(child_dependencies), events(events), initial_schedule(initial_schedule) {
+	    : pipelines(pipelines), child_pipelines(child_pipelines), union_pipelines(union_pipelines), events(events),
+	      initial_schedule(initial_schedule) {
 	}
 
 	const vector<shared_ptr<Pipeline>> &pipelines;
 	unordered_map<Pipeline *, vector<shared_ptr<Pipeline>>> &child_pipelines;
 	unordered_map<Pipeline *, vector<shared_ptr<Pipeline>>> &union_pipelines;
-	unordered_map<Pipeline *, vector<Pipeline *>> &child_dependencies;
 	unordered_map<Pipeline *, vector<Pipeline *>> scheduled_pipelines;
 	vector<shared_ptr<Event>> &events;
 	bool initial_schedule;
@@ -67,7 +59,6 @@ struct ScheduleEventData {
 
 void Executor::SchedulePipeline(const shared_ptr<Pipeline> &pipeline, ScheduleEventData &event_data,
                                 vector<Pipeline *> &scheduled_pipelines) {
->>>>>>> a086308b550a09dd825a502d32277493e9c4002f
 	D_ASSERT(pipeline);
 
 	auto &event_map = event_data.event_map;
@@ -79,13 +70,7 @@ void Executor::SchedulePipeline(const shared_ptr<Pipeline> &pipeline, ScheduleEv
 
 	PipelineEventStack stack;
 	stack.pipeline_event = pipeline_event.get();
-<<<<<<< HEAD
-	stack.pipeline_finish_event = parent_stack.pipeline_finish_event;
-	stack.pipeline_complete_event = parent_stack.pipeline_complete_event;
 
-	stack.pipeline_event->AddDependency(*parent_stack.pipeline_event); // 此处是否有bug呢
-	parent_stack.pipeline_finish_event->AddDependency(*pipeline_event);
-=======
 	if (!scheduled_pipelines.empty()) {
 		// this pipeline has a parent pipeline - i.e. it is scheduled as part of a `UNION`
 		// set up the events
@@ -114,18 +99,11 @@ void Executor::SchedulePipeline(const shared_ptr<Pipeline> &pipeline, ScheduleEv
 		events.push_back(move(pipeline_finish_event));
 		events.push_back(move(pipeline_complete_event));
 	}
->>>>>>> a086308b550a09dd825a502d32277493e9c4002f
 
 	events.push_back(move(pipeline_event));
 	event_map.insert(make_pair(pipeline.get(), stack));
 
-<<<<<<< HEAD
-	auto parent_pipeline = pipeline.get();
-
-    // 递归的去chain起来
-=======
 	scheduled_pipelines.push_back(pipeline.get());
->>>>>>> a086308b550a09dd825a502d32277493e9c4002f
 	auto union_entry = union_pipelines.find(pipeline.get());
 	if (union_entry != union_pipelines.end()) {
 		for (auto &entry : union_entry->second) {
@@ -134,107 +112,66 @@ void Executor::SchedulePipeline(const shared_ptr<Pipeline> &pipeline, ScheduleEv
 	}
 }
 
-<<<<<<< HEAD
-void Executor::ScheduleChildPipeline(Pipeline *parent, const shared_ptr<Pipeline> &pipeline, event_map_t &event_map,
-                                     vector<shared_ptr<Event>> &events) {
-	pipeline->Ready(); // ready一下
 
-	auto child_ptr = pipeline.get(); // child pipeline呢
-	auto dependencies = child_dependencies.find(child_ptr); // 拿出child pipeline所依赖的pipeline
-	D_ASSERT(union_pipelines.find(child_ptr) == union_pipelines.end());
-=======
 void Executor::ScheduleChildPipeline(Pipeline *parent, const shared_ptr<Pipeline> &pipeline,
                                      ScheduleEventData &event_data) {
 	auto &events = event_data.events;
-	auto &child_dependencies = event_data.child_dependencies;
 	pipeline->Ready();
 
 	auto child_ptr = pipeline.get();
-	auto dependencies = child_dependencies.find(child_ptr);
 	D_ASSERT(event_data.union_pipelines.find(child_ptr) == event_data.union_pipelines.end());
->>>>>>> a086308b550a09dd825a502d32277493e9c4002f
-	D_ASSERT(dependencies != child_dependencies.end());
 	// create the pipeline event and the event stack
 	auto pipeline_event = make_shared<PipelineEvent>(pipeline); // 创建一个pipeline event
 
 	auto &event_map = event_data.event_map;
 	auto parent_entry = event_map.find(parent);
-	PipelineEventStack stack;
-	stack.pipeline_event = pipeline_event.get(); // 基于child pipeline的event
-	stack.pipeline_finish_event = parent_entry->second.pipeline_finish_event; // 这是干什么？
-	stack.pipeline_complete_event = parent_entry->second.pipeline_complete_event; // 这个似乎没关系？
+	D_ASSERT(parent_entry != event_map.end());
 
+	PipelineEventStack stack;
+	stack.pipeline_event = pipeline_event.get();
+	stack.pipeline_finish_event = parent_entry->second.pipeline_finish_event;
+	stack.pipeline_complete_event = parent_entry->second.pipeline_complete_event;
 	// set up the dependencies for this child pipeline
 	unordered_set<Event *> finish_events;
-	for (auto &main_dep : dependencies->second) {
-		vector<Pipeline *> pipeline_dependencies;
-		auto dep_scheduled = event_data.scheduled_pipelines.find(main_dep);
-		if (dep_scheduled == event_data.scheduled_pipelines.end()) {
-			pipeline_dependencies.push_back(main_dep);
-		} else {
-			pipeline_dependencies = dep_scheduled->second;
-		}
-		for (auto &dep : pipeline_dependencies) {
-			auto dep_entry = event_map.find(dep);
-			D_ASSERT(dep_entry != event_map.end());
-			D_ASSERT(dep_entry->second.pipeline_event);
-			D_ASSERT(dep_entry->second.pipeline_finish_event);
 
-			auto finish_event = dep_entry->second.pipeline_finish_event;
-			stack.pipeline_event->AddDependency(*dep_entry->second.pipeline_event);
-			if (finish_events.find(finish_event) == finish_events.end()) {
-				finish_event->AddDependency(*stack.pipeline_event);
-				finish_events.insert(finish_event);
+	vector<Pipeline *> remaining_pipelines;
+	unordered_set<Pipeline *> already_scheduled;
+	remaining_pipelines.push_back(parent);
+	for (idx_t i = 0; i < remaining_pipelines.size(); i++) {
+		auto dep = remaining_pipelines[i];
+		if (already_scheduled.find(dep) != already_scheduled.end()) {
+			continue;
+		}
+		already_scheduled.insert(dep);
+
+		auto dep_scheduled = event_data.scheduled_pipelines.find(dep);
+		if (dep_scheduled != event_data.scheduled_pipelines.end()) {
+			for (auto &next_dep : dep_scheduled->second) {
+				remaining_pipelines.push_back(next_dep);
 			}
 		}
+
+		auto dep_entry = event_map.find(dep);
+		D_ASSERT(dep_entry != event_map.end());
+		D_ASSERT(dep_entry->second.pipeline_event);
+		D_ASSERT(dep_entry->second.pipeline_finish_event);
+
+		auto finish_event = dep_entry->second.pipeline_finish_event;
+		stack.pipeline_event->AddDependency(*dep_entry->second.pipeline_event);
+		if (finish_events.find(finish_event) == finish_events.end()) {
+			finish_event->AddDependency(*stack.pipeline_event);
+			finish_events.insert(finish_event);
+		}
+
+		event_data.scheduled_pipelines[dep].push_back(child_ptr);
 	}
 
 	events.push_back(move(pipeline_event));
 	event_map.insert(make_pair(child_ptr, stack));
 }
 
-<<<<<<< HEAD
-void Executor::SchedulePipeline(const shared_ptr<Pipeline> &pipeline, event_map_t &event_map,
-                                vector<shared_ptr<Event>> &events, bool complete_pipeline) {
-	D_ASSERT(pipeline);
-
-	pipeline->Ready(); // 初始化
-
-	auto pipeline_event = make_shared<PipelineEvent>(pipeline);
-	auto pipeline_finish_event = make_shared<PipelineFinishEvent>(pipeline);
-	auto pipeline_complete_event = make_shared<PipelineCompleteEvent>(pipeline->executor, complete_pipeline);
-
-	PipelineEventStack stack;
-	stack.pipeline_event = pipeline_event.get();
-	stack.pipeline_finish_event = pipeline_finish_event.get();
-	stack.pipeline_complete_event = pipeline_complete_event.get();
-
-    // A -> B: A依赖于B
-	pipeline_finish_event->AddDependency(*pipeline_event);
-	pipeline_complete_event->AddDependency(*pipeline_finish_event);
-
-	events.push_back(move(pipeline_event));
-	events.push_back(move(pipeline_finish_event));
-	events.push_back(move(pipeline_complete_event));
-
-	event_map.insert(make_pair(pipeline.get(), stack));
-
-	auto union_entry = union_pipelines.find(pipeline.get()); // 如果该pipeline存在union pipeline
-	if (union_entry != union_pipelines.end()) {
-		auto parent_pipeline = pipeline.get();
-		for (auto &entry : union_entry->second) {
-			parent_pipeline = ScheduleUnionPipeline(entry, parent_pipeline, event_map, events);
-		}
-	}
-}
-
-void Executor::ScheduleEventsInternal(const vector<shared_ptr<Pipeline>> &pipelines,
-                                      unordered_map<Pipeline *, vector<shared_ptr<Pipeline>>> &child_pipelines,
-                                      vector<shared_ptr<Event>> &events, bool main_schedule) {
-=======
 void Executor::ScheduleEventsInternal(ScheduleEventData &event_data) {
 	auto &events = event_data.events;
->>>>>>> a086308b550a09dd825a502d32277493e9c4002f
 	D_ASSERT(events.empty());
 	// create all the required pipeline events
 	auto &event_map = event_data.event_map;
@@ -276,15 +213,14 @@ void Executor::ScheduleEventsInternal(ScheduleEventData &event_data) {
 }
 
 void Executor::ScheduleEvents() {
-	ScheduleEventData event_data(pipelines, child_pipelines, union_pipelines, child_dependencies, events, true);
+	ScheduleEventData event_data(pipelines, child_pipelines, union_pipelines, events, true);
 	ScheduleEventsInternal(event_data);
 }
 
 void Executor::ReschedulePipelines(const vector<shared_ptr<Pipeline>> &pipelines, vector<shared_ptr<Event>> &events) {
 	unordered_map<Pipeline *, vector<shared_ptr<Pipeline>>> child_pipelines;
 	unordered_map<Pipeline *, vector<shared_ptr<Pipeline>>> union_pipelines;
-	unordered_map<Pipeline *, vector<Pipeline *>> child_dependencies;
-	ScheduleEventData event_data(pipelines, child_pipelines, union_pipelines, child_dependencies, events, false);
+	ScheduleEventData event_data(pipelines, child_pipelines, union_pipelines, events, false);
 	ScheduleEventsInternal(event_data);
 }
 
@@ -303,13 +239,8 @@ void Executor::ExtractPipelines(shared_ptr<Pipeline> &pipeline, vector<shared_pt
 	}
 	auto child_entry = child_pipelines.find(pipeline_ptr);
 	if (child_entry != child_pipelines.end()) {
-<<<<<<< HEAD
-		for (auto &entry : child_entry->second) { // 是不是反了
-			ExtractPipelines(entry, result);
-=======
 		for (auto entry = child_entry->second.rbegin(); entry != child_entry->second.rend(); ++entry) {
 			ExtractPipelines(*entry, result);
->>>>>>> a086308b550a09dd825a502d32277493e9c4002f
 		}
 		child_pipelines.erase(pipeline_ptr);
 	}
@@ -501,7 +432,6 @@ void Executor::Reset() {
 	events.clear();
 	union_pipelines.clear();
 	child_pipelines.clear();
-	child_dependencies.clear();
 	execution_result = PendingExecutionResult::RESULT_NOT_READY;
 }
 
@@ -509,26 +439,16 @@ void Executor::AddChildPipeline(Pipeline *current) {
 	D_ASSERT(!current->operators.empty());
 	// found another operator that is a source
 	// schedule a child pipeline
-	auto child_pipeline = make_shared<Pipeline>(*this); // 创建child pipeline
-	auto child_pipeline_ptr = child_pipeline.get(); // child pipeline raw ptr
-	child_pipeline->sink = current->sink; // 同一个sink
-	child_pipeline->operators = current->operators; // 同一个operators
-	child_pipeline->source = current->operators.back(); // 末尾的operator应该是join算子
+	auto child_pipeline = make_shared<Pipeline>(*this);
+	child_pipeline->sink = current->sink;
+	child_pipeline->operators = current->operators;
+	child_pipeline->source = current->operators.back();
 	D_ASSERT(child_pipeline->source->IsSource());
 	child_pipeline->operators.pop_back();
 
 	vector<Pipeline *> dependencies;
 	dependencies.push_back(current);
-	auto child_entry = child_pipelines.find(current);
-	if (child_entry != child_pipelines.end()) {
-		for (auto &current_child : child_entry->second) {
-			D_ASSERT(child_dependencies.find(current_child.get()) != child_dependencies.end());
-			child_dependencies[current_child.get()].push_back(child_pipeline_ptr);
-		}
-	}
-	D_ASSERT(child_dependencies.find(child_pipeline_ptr) == child_dependencies.end());
-	child_dependencies.insert(make_pair(child_pipeline_ptr, move(dependencies)));
-	child_pipelines[current].push_back(move(child_pipeline)); // 记录current pipeline的child pipeline
+	child_pipelines[current].push_back(move(child_pipeline));
 }
 
 vector<LogicalType> Executor::GetTypes() {
@@ -536,12 +456,12 @@ vector<LogicalType> Executor::GetTypes() {
 	return physical_plan->GetTypes();
 }
 
-void Executor::PushError(ExceptionType type, const string &exception) {
+void Executor::PushError(PreservedError exception) {
 	lock_guard<mutex> elock(executor_lock);
 	// interrupt execution of any other pipelines that belong to this executor
 	context.interrupted = true;
 	// push the exception onto the stack
-	exceptions.emplace_back(type, exception);
+	exceptions.push_back(move(exception));
 }
 
 bool Executor::HasError() {
@@ -557,30 +477,7 @@ void Executor::ThrowException() {
 void Executor::ThrowExceptionInternal() { // LCOV_EXCL_START
 	D_ASSERT(!exceptions.empty());
 	auto &entry = exceptions[0];
-	switch (entry.first) {
-	case ExceptionType::TRANSACTION:
-		throw TransactionException(entry.second);
-	case ExceptionType::CATALOG:
-		throw CatalogException(entry.second);
-	case ExceptionType::PARSER:
-		throw ParserException(entry.second);
-	case ExceptionType::BINDER:
-		throw BinderException(entry.second);
-	case ExceptionType::INTERRUPT:
-		throw InterruptException();
-	case ExceptionType::FATAL:
-		throw FatalException(entry.second);
-	case ExceptionType::INTERNAL:
-		throw InternalException(entry.second);
-	case ExceptionType::IO:
-		throw IOException(entry.second);
-	case ExceptionType::CONSTRAINT:
-		throw ConstraintException(entry.second);
-	case ExceptionType::CONVERSION:
-		throw ConversionException(entry.second);
-	default:
-		throw Exception(entry.second);
-	}
+	entry.Throw();
 } // LCOV_EXCL_STOP
 
 void Executor::Flush(ThreadContext &tcontext) {

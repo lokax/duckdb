@@ -21,20 +21,9 @@ void PhysicalUnion::BuildPipelines(Executor &executor, Pipeline &current, Pipeli
 	op_state.reset();
 	sink_state.reset();
 
-	auto union_pipeline = make_shared<Pipeline>(executor); // union pipeline
-	auto pipeline_ptr = union_pipeline.get(); // union pipeline raw ptr
-	auto &child_pipelines = state.GetChildPipelines(executor); // 
-	auto &child_dependencies = state.GetChildDependencies(executor);
+	auto union_pipeline = make_shared<Pipeline>(executor);
+	auto pipeline_ptr = union_pipeline.get();
 	auto &union_pipelines = state.GetUnionPipelines(executor);
-	// set up dependencies for any child pipelines to this union pipeline
-	auto child_entry = child_pipelines.find(&current); // 发现current流水线的孩子流水线
-	if (child_entry != child_pipelines.end()) {
-		for (auto &current_child : child_entry->second) {
-			D_ASSERT(child_dependencies.find(current_child.get()) != child_dependencies.end());
-            // 这些pipeline也需要依赖于当前的union pipeline的完成
-			child_dependencies[current_child.get()].push_back(pipeline_ptr);
-		}
-	}
 	// for the current pipeline, continue building on the LHS
     // 为union pipeline设置和current pipeline同样的operator
 	state.SetPipelineOperators(*union_pipeline, state.GetPipelineOperators(current));

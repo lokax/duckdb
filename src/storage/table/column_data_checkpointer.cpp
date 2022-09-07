@@ -88,13 +88,9 @@ unique_ptr<AnalyzeState> ColumnDataCheckpointer::DetectBestCompressionMethod(idx
 	CompressionType forced_method = CompressionType::COMPRESSION_AUTO;
 
 	auto compression_type = checkpoint_info.compression_type;
-<<<<<<< HEAD
-	if (compression_type != CompressionType::COMPRESSION_AUTO) { // 如果强制使用某一个压缩方法，则把别的方法都清空
-		ForceCompression(compression_functions, compression_type);
-=======
+    // 如果强制使用某一个压缩方法，则把别的方法都清空
 	if (compression_type != CompressionType::COMPRESSION_AUTO) {
 		forced_method = ForceCompression(compression_functions, compression_type);
->>>>>>> a086308b550a09dd825a502d32277493e9c4002f
 	}
 	if (compression_type == CompressionType::COMPRESSION_AUTO &&
 	    config.options.force_compression != CompressionType::COMPRESSION_AUTO) {

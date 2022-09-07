@@ -22,12 +22,8 @@ public:
 		rhs_materialized.InitializeAppend(append_state);
 	}
 
-<<<<<<< HEAD
-	ChunkCollection rhs_materialized; // 右表需要物化
-=======
-	ColumnDataCollection rhs_materialized;
+	ColumnDataCollection rhs_materialized; // 右边需要物化
 	ColumnDataAppendState append_state;
->>>>>>> a086308b550a09dd825a502d32277493e9c4002f
 	mutex rhs_lock;
 };
 
@@ -39,13 +35,9 @@ unique_ptr<GlobalSinkState> PhysicalCrossProduct::GetGlobalSinkState(ClientConte
 SinkResultType PhysicalCrossProduct::Sink(ExecutionContext &context, GlobalSinkState &state, LocalSinkState &lstate_p,
                                           DataChunk &input) const {
 	auto &sink = (CrossProductGlobalState &)state;
-<<<<<<< HEAD
-	lock_guard<mutex> client_guard(sink.rhs_lock); // 因为可以并行sink，所以才要加锁吧
-	sink.rhs_materialized.Append(input);
-=======
+    // 因为可以并行sink，所以才要加锁吧
 	lock_guard<mutex> client_guard(sink.rhs_lock);
 	sink.rhs_materialized.Append(sink.append_state, input);
->>>>>>> a086308b550a09dd825a502d32277493e9c4002f
 	return SinkResultType::NEED_MORE_INPUT;
 }
 
@@ -103,23 +95,6 @@ OperatorResultType CrossProductExecutor::Execute(DataChunk &input, DataChunk &ou
 		initialized = false;
 		return OperatorResultType::NEED_MORE_INPUT;
 	}
-<<<<<<< HEAD
-    // right collection已经提前物化好了
-	auto &left_chunk = input;
-	// now match the current vector of the left relation with the current row
-	// from the right relation
-	chunk.SetCardinality(left_chunk.size());
-	// create a reference to the vectors of the left column
-	for (idx_t i = 0; i < left_chunk.ColumnCount(); i++) {
-		chunk.data[i].Reference(left_chunk.data[i]);
-	}
-	// duplicate the values on the right side
-	auto &right_chunk = right_collection.GetChunkForRow(state.right_position);
-	auto row_in_chunk = state.right_position % STANDARD_VECTOR_SIZE;
-	for (idx_t i = 0; i < right_collection.ColumnCount(); i++) {
-		ConstantVector::Reference(chunk.data[left_chunk.ColumnCount() + i], right_chunk.data[i], row_in_chunk,
-		                          right_chunk.size());
-=======
 
 	// set up the constant chunk
 	auto &constant_chunk = scan_input_chunk ? scan_chunk : input;
@@ -128,7 +103,6 @@ OperatorResultType CrossProductExecutor::Execute(DataChunk &input, DataChunk &ou
 	output.SetCardinality(constant_chunk.size());
 	for (idx_t i = 0; i < col_count; i++) {
 		output.data[col_offset + i].Reference(constant_chunk.data[i]);
->>>>>>> a086308b550a09dd825a502d32277493e9c4002f
 	}
 
 	// for the chunk that we are scanning, scan a single value from that chunk

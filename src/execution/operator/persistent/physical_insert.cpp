@@ -64,11 +64,7 @@ SinkResultType PhysicalInsert::Sink(ExecutionContext &context, GlobalSinkState &
 			auto storage_idx = col.StorageOid();
 			if (column_index_map[i] == DConstants::INVALID_INDEX) {
 				// insert default value
-<<<<<<< HEAD
-				istate.default_executor.ExecuteExpression(i, istate.insert_chunk.data[i]); // 获取默认值
-=======
 				istate.default_executor.ExecuteExpression(i, istate.insert_chunk.data[storage_idx]);
->>>>>>> 3191940af93e628c48509a26eb5fbe42f814a2b2
 			} else {
 				// get value from child chunk
 				D_ASSERT((idx_t)column_index_map[i] < chunk.ColumnCount());

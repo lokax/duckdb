@@ -642,10 +642,15 @@ static void InitializeUpdateData(UpdateInfo *base_info, Vector &base_data, Updat
 	}
 
 	auto base_array_data = FlatVector::GetData<T>(base_data);
-	auto base_tuple_data = (T *)base_info->tuple_data; // base tuple data本身有序
+	auto &base_validity = FlatVector::Validity(base_data);
+    // base tuple data本身有序
+	auto base_tuple_data = (T *)base_info->tuple_data;
 	for (idx_t i = 0; i < base_info->N; i++) {
-		base_tuple_data[i] =
-		    UpdateSelectElement::Operation<T>(base_info->segment, base_array_data[base_info->tuples[i]]);
+		auto base_idx = base_info->tuples[i];
+		if (!base_validity.RowIsValid(base_idx)) {
+			continue;
+		}
+		base_tuple_data[i] = UpdateSelectElement::Operation<T>(base_info->segment, base_array_data[base_idx]);
 	}
 }
 
@@ -1063,11 +1068,7 @@ void UpdateSegment::Update(Transaction &transaction, idx_t column_index, Vector 
 	// obtain an exclusive lock
 	auto write_lock = lock.GetExclusiveLock();
 
-<<<<<<< HEAD
-	update.Normalify(count); // 为什么要normalify呢
-=======
 	update.Flatten(count);
->>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 
 	// update statistics
 	SelectionVector sel;

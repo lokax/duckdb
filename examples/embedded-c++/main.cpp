@@ -54,6 +54,4 @@ int main() {
 	<<<<<<< HEAD
 	*/
 	return 0;
-=======
->>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 }

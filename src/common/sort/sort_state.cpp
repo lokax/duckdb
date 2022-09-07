@@ -60,7 +60,7 @@ SortLayout::SortLayout(const vector<BoundOrderByNode> &orders)
 		}
 
 		idx_t col_size = has_null.back() ? 1 : 0;
-        // 前缀长度
+		// 前缀长度
 		prefix_lengths.push_back(0);
 		if (!TypeIsConstantSize(physical_type) && physical_type != PhysicalType::VARCHAR) {
 			prefix_lengths.back() = GetNestedSortingColSize(col_size, expr.return_type);
@@ -85,7 +85,7 @@ SortLayout::SortLayout(const vector<BoundOrderByNode> &orders)
 		comparison_size += col_size;
 		column_sizes.push_back(col_size);
 	}
-    // 这个uint32干嘛用的?
+	// 这个uint32干嘛用的?
 	entry_size = comparison_size + sizeof(uint32_t);
 
 	// 8-byte alignment
@@ -121,15 +121,11 @@ SortLayout::SortLayout(const vector<BoundOrderByNode> &orders)
 			blob_layout_types.push_back(logical_types[col_idx]);
 		}
 	}
-    // 普通的RowLayout
+	// 普通的RowLayout
 	blob_layout.Initialize(blob_layout_types);
 }
 
 LocalSortState::LocalSortState() : initialized(false) {
-}
-
-static idx_t EntriesPerBlock(idx_t width) { // TODO(lokax): 是否错了？
-	return (Storage::BLOCK_SIZE + width * STANDARD_VECTOR_SIZE - 1) / width;
 }
 
 void LocalSortState::Initialize(GlobalSortState &global_sort_state, BufferManager &buffer_manager_p) {
@@ -137,20 +133,21 @@ void LocalSortState::Initialize(GlobalSortState &global_sort_state, BufferManage
 	payload_layout = &global_sort_state.payload_layout;
 	buffer_manager = &buffer_manager_p;
 	// Radix sorting data
-	radix_sorting_data = make_unique<RowDataCollection>(*buffer_manager, EntriesPerBlock(sort_layout->entry_size),
-	                                                    sort_layout->entry_size);
+	radix_sorting_data = make_unique<RowDataCollection>(
+	    *buffer_manager, RowDataCollection::EntriesPerBlock(sort_layout->entry_size), sort_layout->entry_size);
 	// Blob sorting data
 	if (!sort_layout->all_constant) {
 		auto blob_row_width = sort_layout->blob_layout.GetRowWidth();
-		blob_sorting_data =
-		    make_unique<RowDataCollection>(*buffer_manager, EntriesPerBlock(blob_row_width), blob_row_width);
+		blob_sorting_data = make_unique<RowDataCollection>(
+		    *buffer_manager, RowDataCollection::EntriesPerBlock(blob_row_width), blob_row_width);
 		blob_sorting_heap = make_unique<RowDataCollection>(*buffer_manager, (idx_t)Storage::BLOCK_SIZE, 1, true);
 	}
 	// Payload data
 	auto payload_row_width = payload_layout->GetRowWidth();
-	payload_data =
-	    make_unique<RowDataCollection>(*buffer_manager, EntriesPerBlock(payload_row_width), payload_row_width);
-	payload_heap = make_unique<RowDataCollection>(*buffer_manager, (idx_t)Storage::BLOCK_SIZE, 1, true); // 都是Pin住的数据
+	payload_data = make_unique<RowDataCollection>(
+	    *buffer_manager, RowDataCollection::EntriesPerBlock(payload_row_width), payload_row_width);
+	// 都是Pin住的数据
+	payload_heap = make_unique<RowDataCollection>(*buffer_manager, (idx_t)Storage::BLOCK_SIZE, 1, true);
 	// Init done
 	initialized = true;
 }
@@ -160,7 +157,7 @@ void LocalSortState::SinkChunk(DataChunk &sort, DataChunk &payload) {
 	// Build and serialize sorting data to radix sortable rows
 	auto data_pointers = FlatVector::GetData<data_ptr_t>(addresses);
 	auto handles = radix_sorting_data->Build(sort.size(), data_pointers, nullptr); // 获取指针到data_pointers中
-    // 这部分数据是要排序的数据吗？
+	// 这部分数据是要排序的数据吗？
 	for (idx_t sort_col = 0; sort_col < sort.ColumnCount(); sort_col++) {
 		bool has_null = sort_layout->has_null[sort_col];
 		bool nulls_first = sort_layout->order_by_null_types[sort_col] == OrderByNullType::NULLS_FIRST;
@@ -174,9 +171,9 @@ void LocalSortState::SinkChunk(DataChunk &sort, DataChunk &payload) {
 	if (!sort_layout->all_constant) {
 		DataChunk blob_chunk;
 		blob_chunk.SetCardinality(sort.size()); // 设置基数
-        // 遍历所有列
+		                                        // 遍历所有列
 		for (idx_t sort_col = 0; sort_col < sort.ColumnCount(); sort_col++) {
-            // 找到不是constant size的列
+			// 找到不是constant size的列
 			if (!sort_layout->constant_size[sort_col]) {
 				blob_chunk.data.emplace_back(sort.data[sort_col]); // 拷贝吗
 			}
@@ -185,6 +182,7 @@ void LocalSortState::SinkChunk(DataChunk &sort, DataChunk &payload) {
 		auto blob_data = blob_chunk.ToUnifiedFormat();
 		RowOperations::Scatter(blob_chunk, blob_data.get(), sort_layout->blob_layout, addresses, *blob_sorting_heap,
 		                       sel_ptr, blob_chunk.size());
+		D_ASSERT(blob_sorting_heap->keep_pinned);
 	}
 
 	// Finally, serialize payload data
@@ -192,6 +190,7 @@ void LocalSortState::SinkChunk(DataChunk &sort, DataChunk &payload) {
 	auto input_data = payload.ToUnifiedFormat();
 	RowOperations::Scatter(payload, input_data.get(), *payload_layout, addresses, *payload_heap, sel_ptr,
 	                       payload.size());
+	D_ASSERT(payload_heap->keep_pinned);
 }
 
 idx_t LocalSortState::SizeInBytes() const {
@@ -231,28 +230,27 @@ void LocalSortState::Sort(GlobalSortState &global_sort_state, bool reorder_heap)
 	ReOrder(global_sort_state, reorder_heap);
 }
 
-RowDataBlock LocalSortState::ConcatenateBlocks(RowDataCollection &row_data) {
+unique_ptr<RowDataBlock> LocalSortState::ConcatenateBlocks(RowDataCollection &row_data) {
 	//	Don't copy and delete if there is only one block.
 	if (row_data.blocks.size() == 1) {
-		auto new_block = row_data.blocks[0];
+		auto new_block = move(row_data.blocks[0]);
 		row_data.blocks.clear();
 		row_data.count = 0;
 		return new_block;
 	}
-
 	// Create block with the correct capacity
 	auto buffer_manager = &row_data.buffer_manager;
 	const idx_t &entry_size = row_data.entry_size;
 	idx_t capacity = MaxValue(((idx_t)Storage::BLOCK_SIZE + entry_size - 1) / entry_size, row_data.count);
-	RowDataBlock new_block(*buffer_manager, capacity, entry_size);
-	new_block.count = row_data.count;
-	auto new_block_handle = buffer_manager->Pin(new_block.block);
+	auto new_block = make_unique<RowDataBlock>(*buffer_manager, capacity, entry_size);
+	new_block->count = row_data.count;
+	auto new_block_handle = buffer_manager->Pin(new_block->block);
 	data_ptr_t new_block_ptr = new_block_handle.Ptr();
 	// Copy the data of the blocks into a single block
 	for (auto &block : row_data.blocks) {
-		auto block_handle = buffer_manager->Pin(block.block);
-		memcpy(new_block_ptr, block_handle.Ptr(), block.count * entry_size);
-		new_block_ptr += block.count * entry_size;
+		auto block_handle = buffer_manager->Pin(block->block);
+		memcpy(new_block_ptr, block_handle.Ptr(), block->count * entry_size);
+		new_block_ptr += block->count * entry_size;
 	}
 	row_data.blocks.clear();
 	row_data.count = 0;
@@ -263,13 +261,14 @@ void LocalSortState::ReOrder(SortedData &sd, data_ptr_t sorting_ptr, RowDataColl
                              bool reorder_heap) {
 	sd.swizzled = reorder_heap;
 	auto &unordered_data_block = sd.data_blocks.back();
-	const idx_t &count = unordered_data_block.count;
-	auto unordered_data_handle = buffer_manager->Pin(unordered_data_block.block);
+	const idx_t count = unordered_data_block->count;
+	auto unordered_data_handle = buffer_manager->Pin(unordered_data_block->block);
 	const data_ptr_t unordered_data_ptr = unordered_data_handle.Ptr();
 	// Create new block that will hold re-ordered row data
-	RowDataBlock ordered_data_block(*buffer_manager, unordered_data_block.capacity, unordered_data_block.entry_size);
-	ordered_data_block.count = count;
-	auto ordered_data_handle = buffer_manager->Pin(ordered_data_block.block);
+	auto ordered_data_block =
+	    make_unique<RowDataBlock>(*buffer_manager, unordered_data_block->capacity, unordered_data_block->entry_size);
+	ordered_data_block->count = count;
+	auto ordered_data_handle = buffer_manager->Pin(ordered_data_block->block);
 	data_ptr_t ordered_data_ptr = ordered_data_handle.Ptr();
 	// Re-order fixed-size row layout
 	const idx_t row_width = sd.layout.GetRowWidth();
@@ -280,6 +279,7 @@ void LocalSortState::ReOrder(SortedData &sd, data_ptr_t sorting_ptr, RowDataColl
 		ordered_data_ptr += row_width;
 		sorting_ptr += sorting_entry_size;
 	}
+	ordered_data_block->block->SetSwizzling(sd.layout.AllConstant() ? nullptr : "LocalSortState::ReOrder.ordered_data");
 	// Replace the unordered data block with the re-ordered data block
 	sd.data_blocks.clear();
 	sd.data_blocks.push_back(move(ordered_data_block));
@@ -287,18 +287,20 @@ void LocalSortState::ReOrder(SortedData &sd, data_ptr_t sorting_ptr, RowDataColl
 	if (!sd.layout.AllConstant() && reorder_heap) {
 		// Swizzle the column pointers to offsets
 		RowOperations::SwizzleColumns(sd.layout, ordered_data_handle.Ptr(), count);
+		sd.data_blocks.back()->block->SetSwizzling(nullptr);
 		// Create a single heap block to store the ordered heap
-		idx_t total_byte_offset = std::accumulate(heap.blocks.begin(), heap.blocks.end(), 0,
-		                                          [](idx_t a, const RowDataBlock &b) { return a + b.byte_offset; });
+		idx_t total_byte_offset =
+		    std::accumulate(heap.blocks.begin(), heap.blocks.end(), 0,
+		                    [](idx_t a, const unique_ptr<RowDataBlock> &b) { return a + b->byte_offset; });
 		idx_t heap_block_size = MaxValue(total_byte_offset, (idx_t)Storage::BLOCK_SIZE);
-		RowDataBlock ordered_heap_block(*buffer_manager, heap_block_size, 1);
-		ordered_heap_block.count = count;
-		ordered_heap_block.byte_offset = total_byte_offset;
-		auto ordered_heap_handle = buffer_manager->Pin(ordered_heap_block.block);
+		auto ordered_heap_block = make_unique<RowDataBlock>(*buffer_manager, heap_block_size, 1);
+		ordered_heap_block->count = count;
+		ordered_heap_block->byte_offset = total_byte_offset;
+		auto ordered_heap_handle = buffer_manager->Pin(ordered_heap_block->block);
 		data_ptr_t ordered_heap_ptr = ordered_heap_handle.Ptr();
 		// Fill the heap in order
 		ordered_data_ptr = ordered_data_handle.Ptr();
-		const idx_t heap_pointer_offset = sd.layout.GetHeapPointerOffset();
+		const idx_t heap_pointer_offset = sd.layout.GetHeapOffset();
 		for (idx_t i = 0; i < count; i++) {
 			auto heap_row_ptr = Load<data_ptr_t>(ordered_data_ptr + heap_pointer_offset);
 			auto heap_row_size = Load<uint32_t>(heap_row_ptr);
@@ -318,7 +320,7 @@ void LocalSortState::ReOrder(SortedData &sd, data_ptr_t sorting_ptr, RowDataColl
 
 void LocalSortState::ReOrder(GlobalSortState &gstate, bool reorder_heap) {
 	auto &sb = *sorted_blocks.back();
-	auto sorting_handle = buffer_manager->Pin(sb.radix_sorting_data.back().block);
+	auto sorting_handle = buffer_manager->Pin(sb.radix_sorting_data.back()->block);
 	const data_ptr_t sorting_ptr = sorting_handle.Ptr() + gstate.sort_layout.comparison_size;
 	// Re-order variable size sorting columns
 	if (!gstate.sort_layout.all_constant) {
@@ -402,7 +404,7 @@ void GlobalSortState::InitializeMergeRound() {
 	// If we reverse this list, the blocks that were merged last will be merged first in the next round
 	// These are still in memory, therefore this reduces the amount of read/write to disk!
 	// 人才
-    std::reverse(sorted_blocks.begin(), sorted_blocks.end());
+	std::reverse(sorted_blocks.begin(), sorted_blocks.end());
 	// Uneven number of blocks - keep one on the side
 	if (sorted_blocks.size() % 2 == 1) {
 		odd_one_out = move(sorted_blocks.back());

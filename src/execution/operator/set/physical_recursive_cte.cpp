@@ -28,21 +28,10 @@ PhysicalRecursiveCTE::~PhysicalRecursiveCTE() {
 class RecursiveCTEState : public GlobalSinkState {
 public:
 	explicit RecursiveCTEState(ClientContext &context, const PhysicalRecursiveCTE &op)
-<<<<<<< HEAD
-<<<<<<< HEAD
-	    : new_groups(STANDARD_VECTOR_SIZE) {
-            // 创建哈希表
-		ht = make_unique<GroupedAggregateHashTable>(BufferManager::GetBufferManager(context), op.types,
-		                                            vector<LogicalType>(), vector<BoundAggregateExpression *>());
-=======
-	    : intermediate_table(Allocator::Get(context)), new_groups(STANDARD_VECTOR_SIZE) {
-=======
 	    : intermediate_table(context, op.GetTypes()), new_groups(STANDARD_VECTOR_SIZE) {
->>>>>>> a086308b550a09dd825a502d32277493e9c4002f
 		ht = make_unique<GroupedAggregateHashTable>(Allocator::Get(context), BufferManager::GetBufferManager(context),
 		                                            op.types, vector<LogicalType>(),
 		                                            vector<BoundAggregateExpression *>());
->>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 	}
 
 	unique_ptr<GroupedAggregateHashTable> ht;

@@ -159,7 +159,8 @@ void RowOperations::Scatter(DataChunk &columns, UnifiedVectorFormat col_data[], 
 		string_heap.Build(count, data_locations, entry_sizes); // 获取指针
 
 		// Serialize information that is needed for swizzling if the computation goes out-of-core
-		const idx_t heap_pointer_offset = layout.GetHeapPointerOffset(); // 获取heap_ptr的偏移量
+        // 获取heap_ptr的偏移量
+		const idx_t heap_pointer_offset = layout.GetHeapOffset();
 		for (idx_t i = 0; i < count; i++) {
 			auto row_idx = sel.get_index(i);
 			auto row = ptrs[row_idx];

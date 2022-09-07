@@ -1,12 +1,12 @@
 #include "duckdb/execution/operator/join/physical_delim_join.hpp"
 
+#include "duckdb/common/types/column_data_collection.hpp"
 #include "duckdb/common/vector_operations/vector_operations.hpp"
 #include "duckdb/execution/operator/aggregate/physical_hash_aggregate.hpp"
-#include "duckdb/execution/operator/set/physical_recursive_cte.hpp"
-#include "duckdb/parallel/thread_context.hpp"
-#include "duckdb/parallel/pipeline.hpp"
-#include "duckdb/common/types/column_data_collection.hpp"
 #include "duckdb/execution/operator/scan/physical_column_data_scan.hpp"
+#include "duckdb/execution/operator/set/physical_recursive_cte.hpp"
+#include "duckdb/parallel/pipeline.hpp"
+#include "duckdb/parallel/thread_context.hpp"
 
 namespace duckdb {
 
@@ -92,11 +92,8 @@ unique_ptr<LocalSinkState> PhysicalDelimJoin::GetLocalSinkState(ExecutionContext
 SinkResultType PhysicalDelimJoin::Sink(ExecutionContext &context, GlobalSinkState &state_p, LocalSinkState &lstate_p,
                                        DataChunk &input) const {
 	auto &lstate = (DelimJoinLocalState &)lstate_p;
-<<<<<<< HEAD
-	lstate.lhs_data.Append(input);  // 完整的数据
-=======
+	// 完整的数据
 	lstate.lhs_data.Append(lstate.append_state, input);
->>>>>>> a086308b550a09dd825a502d32277493e9c4002f
 	distinct->Sink(context, *distinct->sink_state, *lstate.distinct_state, input);
 	return SinkResultType::NEED_MORE_INPUT;
 }
@@ -129,7 +126,7 @@ void PhysicalDelimJoin::BuildPipelines(Executor &executor, Pipeline &current, Pi
 
 	// duplicate eliminated join
 	auto pipeline = make_shared<Pipeline>(executor); // 创建pipeline
-	state.SetPipelineSink(*pipeline, this); // 该算子是当前pipeline的sink
+	state.SetPipelineSink(*pipeline, this);          // 该算子是当前pipeline的sink
 	current.AddDependency(pipeline);
 
 	// recurse into the pipeline child

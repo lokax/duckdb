@@ -785,17 +785,12 @@ RowGroupPointer RowGroup::Deserialize(Deserializer &main_source, const vector<Co
 
 	auto &source = reader.GetSource();
 	for (idx_t i = 0; i < columns.size(); i++) {
-<<<<<<< HEAD
-		auto stats = BaseStatistics::Deserialize(source, columns[i].type);
-		result.statistics.push_back(move(stats)); // row group每一列的统计数据
-=======
 		auto &col = columns[i];
 		if (col.Generated()) {
 			continue;
 		}
 		auto stats = BaseStatistics::Deserialize(source, columns[i].Type());
 		result.statistics.push_back(move(stats));
->>>>>>> 3191940af93e628c48509a26eb5fbe42f814a2b2
 	}
 	for (idx_t i = 0; i < columns.size(); i++) {
 		auto &col = columns[i];

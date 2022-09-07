@@ -122,15 +122,11 @@ template <class T>
 void FixedSizeScanPartial(ColumnSegment &segment, ColumnScanState &state, idx_t scan_count, Vector &result,
                           idx_t result_offset) {
 	auto &scan_state = (FixedSizeScanState &)*state.scan_state;
-<<<<<<< HEAD
-	auto start = segment.GetRelativeIndex(state.row_index); // 获取segement里面的相对位置
+    // 获取segement里面的相对位置
     // scan_state.handle是init scan时Pin出来的Buffer Handle
-	auto data = scan_state.handle->node->buffer + segment.GetBlockOffset();
-=======
 	auto start = segment.GetRelativeIndex(state.row_index);
 
 	auto data = scan_state.handle.Ptr() + segment.GetBlockOffset();
->>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 	auto source_data = data + start * sizeof(T);
 
 	// copy the data from the base table

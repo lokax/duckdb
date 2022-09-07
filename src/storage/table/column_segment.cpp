@@ -113,12 +113,8 @@ void ColumnSegment::InitializeAppend(ColumnAppendState &state) {
 //===--------------------------------------------------------------------===//
 // Append
 //===--------------------------------------------------------------------===//
-<<<<<<< HEAD
 // 从append_data的offset开始的count个添加进该segment,可能没有把所有count个都添加进去
-idx_t ColumnSegment::Append(ColumnAppendState &state, VectorData &append_data, idx_t offset, idx_t count) {
-=======
 idx_t ColumnSegment::Append(ColumnAppendState &state, UnifiedVectorFormat &append_data, idx_t offset, idx_t count) {
->>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 	D_ASSERT(segment_type == ColumnSegmentType::TRANSIENT);
 	if (!function->append) {
 		throw InternalException("Attempting to append to a segment without append method");

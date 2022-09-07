@@ -42,6 +42,11 @@ idx_t RowDataCollection::AppendToBlock(RowDataBlock &block, BufferHandle &handle
 	return append_count;
 }
 
+RowDataBlock &RowDataCollection::CreateBlock() {
+	blocks.push_back(make_unique<RowDataBlock>(buffer_manager, block_capacity, entry_size));
+	return *blocks.back();
+}
+
 vector<BufferHandle> RowDataCollection::Build(idx_t added_count, data_ptr_t key_locations[], idx_t entry_sizes[],
                                               const SelectionVector *sel) {
 	vector<BufferHandle> handles;
@@ -54,8 +59,8 @@ vector<BufferHandle> RowDataCollection::Build(idx_t added_count, data_ptr_t key_
 		lock_guard<mutex> append_lock(rdc_lock); // 加锁
 		count += added_count;
 
-		if (!blocks.empty()) { // 块不是空
-			auto &last_block = blocks.back(); // 拿出最后一块
+		if (!blocks.empty()) {
+			auto &last_block = *blocks.back();
 			if (last_block.count < last_block.capacity) {
 				// last block has space: pin the buffer of this block
 				auto handle = buffer_manager.Pin(last_block.block);
@@ -67,7 +72,7 @@ vector<BufferHandle> RowDataCollection::Build(idx_t added_count, data_ptr_t key_
 		}
 		while (remaining > 0) {
 			// now for the remaining data, allocate new buffers to store the data and append there
-			RowDataBlock new_block(buffer_manager, block_capacity, entry_size); // 创建新块
+			auto &new_block = CreateBlock();
 			auto handle = buffer_manager.Pin(new_block.block);
 
 			// offset the entry sizes array if we have added entries already
@@ -76,9 +81,8 @@ vector<BufferHandle> RowDataCollection::Build(idx_t added_count, data_ptr_t key_
 			idx_t append_count = AppendToBlock(new_block, handle, append_entries, remaining, offset_entry_sizes);
 			D_ASSERT(new_block.count > 0);
 			remaining -= append_count;
-
-			blocks.push_back(move(new_block));
-			if (keep_pinned) { // 如果需要一直pin住，就放进pinned_blocks
+            // 如果需要一直pin住，就放进pinned_blocks
+			if (keep_pinned) {
 				pinned_blocks.push_back(move(handle));
 			} else {
 				handles.push_back(move(handle));
@@ -107,6 +111,9 @@ vector<BufferHandle> RowDataCollection::Build(idx_t added_count, data_ptr_t key_
 }
 
 void RowDataCollection::Merge(RowDataCollection &other) {
+	if (other.count == 0) {
+		return;
+	}
 	RowDataCollection temp(buffer_manager, Storage::BLOCK_SIZE, 1);
 	{
 		//	One lock at a time to avoid deadlocks
@@ -115,8 +122,8 @@ void RowDataCollection::Merge(RowDataCollection &other) {
 		temp.block_capacity = other.block_capacity;
 		temp.entry_size = other.entry_size;
 		temp.blocks = move(other.blocks);
-		other.count = 0;
 	}
+	other.Clear();
 
 	lock_guard<mutex> write_lock(rdc_lock);
 	count += temp.count;

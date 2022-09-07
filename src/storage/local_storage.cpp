@@ -281,13 +281,8 @@ idx_t LocalStorage::Delete(DataTable *table, Vector &row_ids, idx_t count) {
 template <class T>
 static void TemplatedUpdateLoop(Vector &data_vector, Vector &update_vector, Vector &row_ids, idx_t count,
                                 idx_t base_index) {
-<<<<<<< HEAD
-	VectorData udata;
-	update_vector.Orrify(count, udata); // 获取选择向量和数据指针以及validate mask
-=======
 	UnifiedVectorFormat udata;
 	update_vector.ToUnifiedFormat(count, udata);
->>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 
 	auto target = FlatVector::GetData<T>(data_vector);
 	auto &mask = FlatVector::Validity(data_vector);

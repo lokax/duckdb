@@ -199,7 +199,7 @@ public:
 	}
 
 	void AddNewString(string_t str) override {
-        // 更新统计数据
+		// 更新统计数据
 		UncompressedStringStorage::UpdateStringStats(current_segment->stats, str);
 
 		// Copy string to dict
@@ -330,33 +330,21 @@ struct DictionaryAnalyzeState : public DictionaryCompressionState {
 	bitpacking_width_t current_width;
 	bitpacking_width_t next_width;
 
-<<<<<<< HEAD
-	bool LookupString(string_t str) override { // 通过哈希表查看字符串是否已经存在
-		return current_set.count(str);
-	}
-
-	void AddNewString(string_t str) override {
-		current_tuple_count++; // 总tuple的数量
-		current_unique_count++; // 唯一的字符串数量
-		current_dict_size += str.GetSize(); // 大小
-		current_set.insert(str); // 插入哈希表
-		current_width = next_width; // ???
-=======
+	// 通过哈希表查看字符串是否已经存在
 	bool LookupString(string_t str) override {
 		return current_set.count(str);
 	}
 
 	void AddNewString(string_t str) override {
-		current_tuple_count++;
-		current_unique_count++;
-		current_dict_size += str.GetSize();
+		current_tuple_count++;              // 总tuple的数量
+		current_unique_count++;             // 唯一的字符串数量
+		current_dict_size += str.GetSize(); // 大小
 		if (str.IsInlined()) {
-			current_set.insert(str);
+			current_set.insert(str); // 插入哈希表
 		} else {
 			current_set.insert(heap.AddBlob(str));
 		}
 		current_width = next_width;
->>>>>>> a25b6e3072585ddb307c4c6f65cde5459bb3f69e
 	}
 
 	void AddLastLookup() override {
@@ -369,9 +357,8 @@ struct DictionaryAnalyzeState : public DictionaryCompressionState {
 
 	bool HasEnoughSpace(bool new_string, size_t string_size) override {
 		if (new_string) {
-			next_width =
-			    BitpackingPrimitives::MinimumBitWidth(current_unique_count + 2); 
-                // 1 for null, one for new string
+			next_width = BitpackingPrimitives::MinimumBitWidth(current_unique_count + 2);
+			// 1 for null, one for new string
 			return DictionaryCompressionStorage::HasEnoughSpace(current_tuple_count + 1, current_unique_count + 1,
 			                                                    current_dict_size + string_size, next_width);
 		} else {

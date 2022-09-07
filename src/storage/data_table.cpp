@@ -18,15 +18,6 @@
 #include "duckdb/storage/table/standard_column_data.hpp"
 #include "duckdb/transaction/transaction.hpp"
 #include "duckdb/transaction/transaction_manager.hpp"
-<<<<<<< HEAD
-#include "duckdb/storage/checkpoint/table_data_writer.hpp"
-#include "duckdb/storage/table/standard_column_data.hpp"
-#include "duckdb/planner/expression_binder/check_binder.hpp"
-
-#include "duckdb/common/chrono.hpp"
-#include <iostream>
-=======
->>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 
 namespace duckdb {
 
@@ -1053,8 +1044,7 @@ void DataTable::RemoveFromIndexes(Vector &row_identifiers, idx_t count) {
 	result.Initialize(Allocator::Get(db), types);
 
 	row_group->InitializeScanWithOffset(state.row_group_scan_state, row_group_vector_idx);
-	row_group->ScanCommitted(state.row_group_scan_state, result,
-	                         TableScanType::TABLE_SCAN_COMMITTED_ROWS_DISALLOW_UPDATES);
+	row_group->ScanCommitted(state.row_group_scan_state, result, TableScanType::TABLE_SCAN_COMMITTED_ROWS);
 	result.Slice(sel, count);
 
 	info->indexes.Scan([&](Index &index) {
@@ -1437,19 +1427,11 @@ void DataTable::Checkpoint(TableDataWriter &writer) {
 	}
 	// store the current position in the metadata writer
 	// this is where the row groups for this table start
-<<<<<<< HEAD
-	auto &meta_writer = writer.GetMetaWriter();
-    auto pointer = meta_writer.GetBlockPointer();
-
-	for (auto &stats : global_stats) {
-		stats->Serialize(meta_writer); // 这是全局的统计数据吗
-=======
 	auto &data_writer = writer.GetTableWriter();
 	auto pointer = data_writer.GetBlockPointer();
 
 	for (auto &stats : global_stats) {
 		stats->Serialize(data_writer);
->>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 	}
 	// now start writing the row group pointers to disk
 	data_writer.Write<uint64_t>(row_group_pointers.size());

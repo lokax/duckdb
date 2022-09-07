@@ -10,13 +10,9 @@
 #include "duckdb/planner/operator/list.hpp"
 #include "duckdb/planner/subquery/flatten_dependent_join.hpp"
 #include "duckdb/function/aggregate/distributive_functions.hpp"
-<<<<<<< HEAD
-#include <iostream>
-=======
 #include "duckdb/planner/operator/logical_window.hpp"
 #include "duckdb/planner/expression/bound_window_expression.hpp"
 #include "duckdb/main/client_config.hpp"
->>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 
 namespace duckdb {
 
@@ -216,13 +212,9 @@ static unique_ptr<Expression> PlanCorrelatedSubquery(Binder &binder, BoundSubque
                                                      unique_ptr<LogicalOperator> &root,
                                                      unique_ptr<LogicalOperator> plan) {
 	auto &correlated_columns = expr.binder->correlated_columns;
-<<<<<<< HEAD
-    std::cout << correlated_columns.size() << std::endl;
-=======
 	// FIXME: there should be a way of disabling decorrelation for ANY queries as well, but not for now...
 	bool perform_delim =
 	    expr.subquery_type == SubqueryType::ANY ? true : PerformDuplicateElimination(binder, correlated_columns);
->>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 	D_ASSERT(expr.IsCorrelated());
 	// correlated subquery
 	// for a more in-depth explanation of this code, read the paper "Unnesting Arbitrary Subqueries"
@@ -239,18 +231,14 @@ static unique_ptr<Expression> PlanCorrelatedSubquery(Binder &binder, BoundSubque
 		// NULL values are equal in this join because we join on the correlated columns ONLY
 		// and e.g. in the query: SELECT (SELECT 42 FROM integers WHERE i1.i IS NULL LIMIT 1) FROM integers i1;
 		// the input value NULL will generate the value 42, and we need to join NULL on the LHS with NULL on the RHS
-<<<<<<< HEAD
-		auto delim_join = CreateDuplicateEliminatedJoin(correlated_columns, JoinType::SINGLE);
+		// the left side is the original plan
+		// this is the side that will be duplicate eliminated and pushed into the RHS
+		
         // 为什么没有关联的时候直接笛卡尔积呢？这样不就出现了NULL值消失的情况了嘛？
         // 原因在于：
         // SINGLE JOIN拿外部查询数据(CHUCK_SCAN是没有去重，DELIM_SCAN是去重)和内部查询做连接，并且当匹配不到时会保留NULL值在右边
         // 同时SIGLE JOIN会使得只匹配一条数据(给标量子查询使用)
-
-=======
->>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
-		// the left side is the original plan
-		// this is the side that will be duplicate eliminated and pushed into the RHS
-		auto delim_join =
+        auto delim_join =
 		    CreateDuplicateEliminatedJoin(correlated_columns, JoinType::SINGLE, move(root), perform_delim);
 
 		// the right side initially is a DEPENDENT join between the duplicate eliminated scan and the subquery
@@ -282,11 +270,6 @@ static unique_ptr<Expression> PlanCorrelatedSubquery(Binder &binder, BoundSubque
 		idx_t mark_index = binder.GenerateTableIndex();
 		auto delim_join = CreateDuplicateEliminatedJoin(correlated_columns, JoinType::MARK, move(root), perform_delim);
 		delim_join->mark_index = mark_index;
-<<<<<<< HEAD
-		// LHS
-		delim_join->AddChild(move(root)); // 比如说from table
-=======
->>>>>>> 4aa7d9569d361fcd133cca868d0cbbf54cc19485
 		// RHS
 		FlattenDependentJoins flatten(binder, correlated_columns, perform_delim);
 		flatten.DetectCorrelatedExpressions(plan.get());

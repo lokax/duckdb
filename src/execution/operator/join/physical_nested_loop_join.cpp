@@ -146,15 +146,9 @@ public:
 
 	mutex nj_lock;
 	//! Materialized data of the RHS
-<<<<<<< HEAD
-	ChunkCollection right_data; // 对右表的物化
-	//! Materialized join condition of the RHS
-	ChunkCollection right_chunks; // 连接条件的物化
-=======
 	ColumnDataCollection right_payload_data;
 	//! Materialized join condition of the RHS
 	ColumnDataCollection right_condition_data;
->>>>>>> a086308b550a09dd825a502d32277493e9c4002f
 	//! Whether or not the RHS of the nested loop join has NULL values
 	bool has_null;
 	//! A bool indicating for each tuple in the RHS if they found a match (only used in FULL OUTER JOIN)
@@ -188,13 +182,8 @@ SinkResultType PhysicalNestedLoopJoin::Sink(ExecutionContext &context, GlobalSin
 
 	// append the payload data and the conditions
 	lock_guard<mutex> nj_guard(gstate.nj_lock);
-<<<<<<< HEAD
-	gstate.right_data.Append(input); // 将输入添加到右表
-	gstate.right_chunks.Append(nlj_state.right_condition); // 添加进去
-=======
 	gstate.right_payload_data.Append(input);
 	gstate.right_condition_data.Append(nlj_state.right_condition);
->>>>>>> a086308b550a09dd825a502d32277493e9c4002f
 	return SinkResultType::NEED_MORE_INPUT;
 }
 
@@ -329,27 +318,6 @@ void PhysicalNestedLoopJoin::ResolveSimpleJoin(ExecutionContext &context, DataCh
 	}
 }
 
-<<<<<<< HEAD
-void PhysicalJoin::ConstructLeftJoinResult(DataChunk &left, DataChunk &result, bool found_match[]) {
-	SelectionVector remaining_sel(STANDARD_VECTOR_SIZE);
-	idx_t remaining_count = 0;
-	for (idx_t i = 0; i < left.size(); i++) {
-		if (!found_match[i]) {
-			remaining_sel.set_index(remaining_count++, i);
-		}
-	}
-	if (remaining_count > 0) {
-		result.Slice(left, remaining_sel, remaining_count);
-        // 右表的数据设置成NULL
-		for (idx_t idx = left.ColumnCount(); idx < result.ColumnCount(); idx++) {
-			result.data[idx].SetVectorType(VectorType::CONSTANT_VECTOR);
-			ConstantVector::SetNull(result.data[idx], true);
-		}
-	}
-}
-
-=======
->>>>>>> a086308b550a09dd825a502d32277493e9c4002f
 OperatorResultType PhysicalNestedLoopJoin::ResolveComplexJoin(ExecutionContext &context, DataChunk &input,
                                                               DataChunk &chunk, OperatorState &state_p) const {
 	auto &state = (PhysicalNestedLoopJoinState &)state_p;
