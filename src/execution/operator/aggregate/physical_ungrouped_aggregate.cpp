@@ -1,18 +1,19 @@
 #include "duckdb/execution/operator/aggregate/physical_ungrouped_aggregate.hpp"
 
 #include "duckdb/catalog/catalog_entry/aggregate_function_catalog_entry.hpp"
+#include "duckdb/common/algorithm.hpp"
+#include "duckdb/common/unordered_set.hpp"
 #include "duckdb/common/vector_operations/vector_operations.hpp"
 #include "duckdb/execution/expression_executor.hpp"
 #include "duckdb/execution/operator/aggregate/aggregate_object.hpp"
+#include "duckdb/execution/operator/aggregate/distinct_aggregate_data.hpp"
+#include "duckdb/execution/radix_partitioned_hashtable.hpp"
 #include "duckdb/main/client_context.hpp"
+#include "duckdb/parallel/event.hpp"
 #include "duckdb/parallel/thread_context.hpp"
 #include "duckdb/planner/expression/bound_aggregate_expression.hpp"
-#include "duckdb/execution/radix_partitioned_hashtable.hpp"
-#include "duckdb/parallel/event.hpp"
-#include "duckdb/common/unordered_set.hpp"
-#include "duckdb/common/algorithm.hpp"
+
 #include <functional>
-#include "duckdb/execution/operator/aggregate/distinct_aggregate_data.hpp"
 
 namespace duckdb {
 
@@ -115,12 +116,15 @@ public:
 			D_ASSERT(aggregate->GetExpressionClass() == ExpressionClass::BOUND_AGGREGATE);
 			auto &aggr = (BoundAggregateExpression &)*aggregate;
 			// initialize the payload chunk
+            // 每个孩子表达式
 			for (auto &child : aggr.children) {
 				payload_types.push_back(child->return_type);
+				// 添加expression进去
 				child_executor.AddExpression(*child);
 			}
 			aggregate_objects.emplace_back(&aggr);
 		}
+        // payload是孩子
 		if (!payload_types.empty()) { // for select count(*) from t; there is no payload at all
 			payload_chunk.Initialize(allocator, payload_types);
 		}
@@ -160,11 +164,13 @@ public:
 
 		for (auto &idx : distinct_indices) {
 			idx_t table_idx = data.table_map[idx];
+			// 这里是这样么
 			if (data.radix_tables[table_idx] == nullptr) {
 				// This aggregate has identical input as another aggregate, so no table is created for it
 				continue;
 			}
 			auto &radix_table = *data.radix_tables[table_idx];
+            // 获取local sink state
 			radix_states[table_idx] = radix_table.GetLocalSinkState(context);
 		}
 	}
@@ -188,11 +194,13 @@ void PhysicalUngroupedAggregate::SinkDistinct(ExecutionContext &context, GlobalS
 	D_ASSERT(global_sink.distinct_data);
 	auto &distinct_aggregate_data = *global_sink.distinct_data;
 	auto &distinct_indices = distinct_aggregate_data.Indices();
+	// 遍历每一个带有distinct的聚合函数
 	for (auto &idx : distinct_indices) {
 		auto &aggregate = (BoundAggregateExpression &)*aggregates[idx];
-
+		// 拿出table index
 		idx_t table_idx = distinct_aggregate_data.table_map[idx];
-		if (!distinct_aggregate_data.radix_tables[table_idx]) {
+		// 我个人觉得这里是一定有的
+        if (!distinct_aggregate_data.radix_tables[table_idx]) {
 			continue;
 		}
 		D_ASSERT(distinct_aggregate_data.radix_tables[table_idx]);
@@ -205,7 +213,7 @@ void PhysicalUngroupedAggregate::SinkDistinct(ExecutionContext &context, GlobalS
 			auto &filtered_data = sink.filter_set.GetFilterData(idx);
 			idx_t count = filtered_data.ApplyFilter(input);
 			filtered_data.filtered_payload.SetCardinality(count);
-
+			// 先过滤再Sink进去
 			radix_table.Sink(context, radix_global_sink, radix_local_sink, filtered_data.filtered_payload,
 			                 filtered_data.filtered_payload);
 		} else {
@@ -237,6 +245,7 @@ SinkResultType PhysicalUngroupedAggregate::Sink(ExecutionContext &context, Globa
 		payload_idx = next_payload_idx;
 		next_payload_idx = payload_idx + aggregate.children.size();
 
+		// distinct的已经在上面sink过了
 		if (aggregate.distinct) {
 			continue;
 		}
@@ -260,12 +269,13 @@ SinkResultType PhysicalUngroupedAggregate::Sink(ExecutionContext &context, Globa
 
 		// resolve the child expressions of the aggregate (if any)
 		for (idx_t i = 0; i < aggregate.children.size(); ++i) {
+            // 得到孩子chunk
 			sink.child_executor.ExecuteExpression(payload_idx + payload_cnt,
 			                                      payload_chunk.data[payload_idx + payload_cnt]);
 			payload_cnt++;
-		}   
+		}
+		
         // TODO(lokax): 原来simple update用在这个地方上
-
 		auto start_of_input = payload_cnt == 0 ? nullptr : &payload_chunk.data[payload_idx];
 		AggregateInputData aggr_input_data(aggregate.bind_info.get(), Allocator::DefaultAllocator());
 		aggregate.function.simple_update(start_of_input, aggr_input_data, payload_cnt,
@@ -320,7 +330,7 @@ void PhysicalUngroupedAggregate::Combine(ExecutionContext &context, GlobalSinkSt
 
 		Vector source_state(Value::POINTER((uintptr_t)source.state.aggregates[aggr_idx].get()));
 		Vector dest_state(Value::POINTER((uintptr_t)gstate.state.aggregates[aggr_idx].get()));
-         // count是1，没有问题，聚合只会有一个结果不是吗
+		// count是1，没有问题，聚合只会有一个结果不是吗
 		AggregateInputData aggr_input_data(aggregate.bind_info.get(), Allocator::DefaultAllocator());
 		aggregate.function.combine(source_state, dest_state, aggr_input_data, 1);
 #ifdef DEBUG
@@ -342,7 +352,9 @@ public:
 
 	void AggregateDistinct() {
 		D_ASSERT(gstate.distinct_data);
+        // 聚合函数表达式
 		auto &aggregates = op.aggregates;
+        // 拿出distinct data
 		auto &distinct_aggregate_data = *gstate.distinct_data;
 		auto &payload_chunk = distinct_aggregate_data.payload_chunk;
 
@@ -413,6 +425,7 @@ public:
 					child_ref.index = payload_idx + payload_cnt;
 
 					//! The child_executor contains a pointer to the expression we altered above
+					// 计算出payload chunk
 					distinct_aggregate_data.child_executor.ExecuteExpression(
 					    payload_idx + payload_cnt, payload_chunk.data[payload_idx + payload_cnt]);
 					payload_cnt++;

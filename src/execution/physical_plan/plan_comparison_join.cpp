@@ -96,6 +96,7 @@ void CheckForPerfectJoinOpt(LogicalComparisonJoin &op, PerfectHashJoinStats &joi
 		}
 	}
 
+    // 左表是build？不应该是右表？
 	// and when the build range is smaller than the threshold
 	auto stats_build = reinterpret_cast<NumericStatistics *>(op.join_stats[0].get()); // lhs stats
 	if (stats_build->min.IsNull() || stats_build->max.IsNull()) {

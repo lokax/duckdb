@@ -31,8 +31,10 @@ bool PerfectHashJoinExecutor::BuildPerfectHashTable(LogicalType &key_type) {
 	JoinHTScanState join_ht_state;
 	return FullScanHashTable(join_ht_state, key_type);
 }
-
+// 返回false代表失败
+// 只能支持不重复的值
 bool PerfectHashJoinExecutor::FullScanHashTable(JoinHTScanState &state, LogicalType &key_type) {
+    // 注意这里大小是ht的count
 	Vector tuples_addresses(LogicalType::POINTER, ht.Count());              // allocate space for all the tuples
 	auto key_locations = FlatVector::GetData<data_ptr_t>(tuples_addresses); // get a pointer to vector data
 	// TODO: In a parallel finalize: One should exclusively lock and each thread should do one part of the code below.
@@ -50,6 +52,7 @@ bool PerfectHashJoinExecutor::FullScanHashTable(JoinHTScanState &state, LogicalT
 	if (!success) {
 		return false;
 	}
+    // range = 3 - 1 = 2, 实际可能的数据是1, 2, 3，三条数据，所以这里range + 1
 	if (unique_keys == perfect_join_statistics.build_range + 1 && !ht.has_null) {
 		perfect_join_statistics.is_build_dense = true;
 	}
@@ -110,6 +113,7 @@ bool PerfectHashJoinExecutor::TemplatedFillSelectionVectorBuild(Vector &source, 
 			auto idx = (idx_t)(input_value - min_value); // subtract min value to get the idx position
 			sel_vec.set_index(sel_idx, idx);
 			if (bitmap_build_idx[idx]) {
+                // 出现过直接返回?
 				return false;
 			} else {
 				bitmap_build_idx[idx] = true;
@@ -156,9 +160,11 @@ OperatorResultType PerfectHashJoinExecutor::ProbePerfectHashTable(ExecutionConte
 
 	// fetch the join keys from the chunk
 	state.join_keys.Reset();
+    // 计算join key
 	state.probe_executor.Execute(input, state.join_keys);
 	// select the keys that are in the min-max range
 	auto &keys_vec = state.join_keys.data[0];
+    // keys的基数
 	auto keys_count = state.join_keys.size();
 	// todo: add check for fast pass when probe is part of build domain
 	FillSelectionVectorSwitchProbe(keys_vec, state.build_sel_vec, state.probe_sel_vec, keys_count, probe_sel_count);
@@ -247,6 +253,7 @@ void PerfectHashJoinExecutor::TemplatedFillSelectionVectorProbe(Vector &source, 
 			// retrieve value from vector
 			auto data_idx = vector_data.sel->get_index(i);
 			if (!validity_mask->RowIsValid(data_idx)) {
+                // 空值完全忽略掉
 				continue;
 			}
 			auto input_value = data[data_idx];

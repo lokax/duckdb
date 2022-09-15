@@ -79,9 +79,10 @@ void Executor::SchedulePipeline(const shared_ptr<Pipeline> &pipeline, ScheduleEv
 		D_ASSERT(parent_stack_entry != event_map.end());
 
 		auto &parent_stack = parent_stack_entry->second;
+        // 一条流水线？
 		stack.pipeline_finish_event = parent_stack.pipeline_finish_event;
 		stack.pipeline_complete_event = parent_stack.pipeline_complete_event;
-
+        // 先运行父亲的pipeline_event再运行当前的pipeline_event
 		stack.pipeline_event->AddDependency(*parent_stack.pipeline_event);
 		parent_stack.pipeline_finish_event->AddDependency(*pipeline_event);
 	} else {
@@ -121,7 +122,7 @@ void Executor::ScheduleChildPipeline(Pipeline *parent, const shared_ptr<Pipeline
 	auto child_ptr = pipeline.get();
 	D_ASSERT(event_data.union_pipelines.find(child_ptr) == event_data.union_pipelines.end());
 	// create the pipeline event and the event stack
-	auto pipeline_event = make_shared<PipelineEvent>(pipeline); // 创建一个pipeline event
+	auto pipeline_event = make_shared<PipelineEvent>(pipeline); // 创建一个新的pipeline event
 
 	auto &event_map = event_data.event_map;
 	auto parent_entry = event_map.find(parent);
@@ -129,6 +130,7 @@ void Executor::ScheduleChildPipeline(Pipeline *parent, const shared_ptr<Pipeline
 
 	PipelineEventStack stack;
 	stack.pipeline_event = pipeline_event.get();
+    // 同一条流水线
 	stack.pipeline_finish_event = parent_entry->second.pipeline_finish_event;
 	stack.pipeline_complete_event = parent_entry->second.pipeline_complete_event;
 	// set up the dependencies for this child pipeline
@@ -138,10 +140,11 @@ void Executor::ScheduleChildPipeline(Pipeline *parent, const shared_ptr<Pipeline
 	unordered_set<Pipeline *> already_scheduled;
 	remaining_pipelines.push_back(parent);
 	for (idx_t i = 0; i < remaining_pipelines.size(); i++) {
-		auto dep = remaining_pipelines[i];
+		auto dep = remaining_pipelines[i]; // 一开始这东西是parent
 		if (already_scheduled.find(dep) != already_scheduled.end()) {
 			continue;
 		}
+        // 插入到哈希表中
 		already_scheduled.insert(dep);
 
 		auto dep_scheduled = event_data.scheduled_pipelines.find(dep);
@@ -160,7 +163,7 @@ void Executor::ScheduleChildPipeline(Pipeline *parent, const shared_ptr<Pipeline
 		stack.pipeline_event->AddDependency(*dep_entry->second.pipeline_event);
 		if (finish_events.find(finish_event) == finish_events.end()) {
 			finish_event->AddDependency(*stack.pipeline_event);
-			finish_events.insert(finish_event);
+			finish_events.insert(finish_event); // 插入到哈希表中
 		}
 
 		event_data.scheduled_pipelines[dep].push_back(child_ptr);
@@ -317,7 +320,7 @@ void Executor::InitializeInternal(PhysicalOperator *plan) {
 		this->total_pipelines = pipelines.size();
 
 		root_pipeline_idx = 0;
-		ExtractPipelines(root_pipeline, root_pipelines); // 提取pipeline
+		ExtractPipelines(root_pipeline, root_pipelines); // 提取根上的pipeline
 
 		VerifyPipelines();
 

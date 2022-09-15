@@ -2,8 +2,8 @@
 
 #include "duckdb/common/limits.hpp"
 #include "duckdb/common/operator/add.hpp"
-#include "duckdb/common/types/hugeint.hpp"
 #include "duckdb/common/types/date.hpp"
+#include "duckdb/common/types/hugeint.hpp"
 #include "duckdb/common/types/interval.hpp"
 #include "duckdb/common/types/value.hpp"
 
@@ -14,6 +14,7 @@ namespace duckdb {
 //===--------------------------------------------------------------------===//
 template <>
 float SubtractOperator::Operation(float left, float right) {
+	// float和double直接相减就行了
 	auto result = left - right;
 	if (!Value::FloatIsFinite(result)) {
 		throw OutOfRangeException("Overflow in subtraction of float!");
@@ -23,6 +24,7 @@ float SubtractOperator::Operation(float left, float right) {
 
 template <>
 double SubtractOperator::Operation(double left, double right) {
+	// float和double直接相减就行了
 	auto result = left - right;
 	if (!Value::DoubleIsFinite(result)) {
 		throw OutOfRangeException("Overflow in subtraction of double!");
@@ -30,11 +32,14 @@ double SubtractOperator::Operation(double left, double right) {
 	return result;
 }
 
+// 其实这个东西不用特化，data_t本身重载了-号
 template <>
 int64_t SubtractOperator::Operation(date_t left, date_t right) {
+    // 这里直接相减？
 	return int64_t(left.days) - int64_t(right.days);
 }
 
+// 和Add差不多
 template <>
 date_t SubtractOperator::Operation(date_t left, int32_t right) {
 	if (!Date::IsFinite(left)) {
@@ -71,6 +76,9 @@ timestamp_t SubtractOperator::Operation(timestamp_t left, interval_t right) {
 	return AddOperator::Operation<timestamp_t, interval_t, timestamp_t>(left, Interval::Invert(right));
 }
 
+// 为什么Add不特化这个东西?
+// 两个时间戳相减得到时间间隔很合理，两个时间戳相加得到时间间隔就不合理了
+// 所以这个地方做了特化
 template <>
 interval_t SubtractOperator::Operation(timestamp_t left, timestamp_t right) {
 	return Interval::GetDifference(left, right);
@@ -82,7 +90,9 @@ interval_t SubtractOperator::Operation(timestamp_t left, timestamp_t right) {
 struct OverflowCheckedSubtract {
 	template <class SRCTYPE, class UTYPE>
 	static inline bool Operation(SRCTYPE left, SRCTYPE right, SRCTYPE &result) {
+        // 这个不溢出检查
 		UTYPE uresult = SubtractOperator::Operation<UTYPE, UTYPE, UTYPE>(UTYPE(left), UTYPE(right));
+        // 这里做溢出检查，有点意思
 		if (uresult < NumericLimits<SRCTYPE>::Minimum() || uresult > NumericLimits<SRCTYPE>::Maximum()) {
 			return false;
 		}
@@ -93,9 +103,11 @@ struct OverflowCheckedSubtract {
 
 template <>
 bool TrySubtractOperator::Operation(uint8_t left, uint8_t right, uint8_t &result) {
-	if (right > left) {
+	// 肯定溢出了
+    if (right > left) {
 		return false;
 	}
+    // 虽然这里还是用了这个OverflowChecked，但我觉得有点没必要
 	return OverflowCheckedSubtract::Operation<uint8_t, uint16_t>(left, right, result);
 }
 
@@ -120,6 +132,7 @@ bool TrySubtractOperator::Operation(uint64_t left, uint64_t right, uint64_t &res
 	if (right > left) {
 		return false;
 	}
+    // 一定不会溢出的
 	return OverflowCheckedSubtract::Operation<uint64_t, uint64_t>(left, right, result);
 }
 
@@ -138,6 +151,7 @@ bool TrySubtractOperator::Operation(int32_t left, int32_t right, int32_t &result
 	return OverflowCheckedSubtract::Operation<int32_t, int64_t>(left, right, result);
 }
 
+// 通过这种方法检查溢出
 template <>
 bool TrySubtractOperator::Operation(int64_t left, int64_t right, int64_t &result) {
 #if (__GNUC__ >= 5) || defined(__clang__)
@@ -162,6 +176,7 @@ bool TrySubtractOperator::Operation(int64_t left, int64_t right, int64_t &result
 template <>
 bool TrySubtractOperator::Operation(hugeint_t left, hugeint_t right, hugeint_t &result) {
 	result = left;
+    // 这个也会检查溢出的
 	return Hugeint::SubtractInPlace(result, right);
 }
 

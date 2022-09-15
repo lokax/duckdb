@@ -47,17 +47,22 @@ GroupedAggregateHashTable::GroupedAggregateHashTable(Allocator &allocator, Buffe
 	layout.Initialize(move(group_types_p), move(aggregate_objects_p));
 
 	// HT layout
-	hash_offset = layout.GetOffsets()[layout.ColumnCount() - 1]; // 最后一个位置是存的Hash值
+	hash_offset = layout.GetOffsets()[layout.ColumnCount() - 1];
 
-	tuple_size = layout.GetRowWidth(); // 一行的宽度
+	tuple_size = layout.GetRowWidth();
 
 	D_ASSERT(tuple_size <= Storage::BLOCK_SIZE);
+	tuples_per_block = Storage::BLOCK_SIZE / tuple_size;
+	hashes_hdl = buffer_manager.Allocate(Storage::BLOCK_SIZE);
+	hashes_hdl_ptr = hashes_hdl.Ptr();
+
+	switch (entry_type) {
 	case HtEntryType::HT_WIDTH_64: {
 		hash_prefix_shift = (HASH_WIDTH - sizeof(aggr_ht_entry_64::salt)) * 8;
 		Resize<aggr_ht_entry_64>(STANDARD_VECTOR_SIZE * 2L);
+		break;
 	}
 	case HtEntryType::HT_WIDTH_32: {
-        // 左移56位
 		hash_prefix_shift = (HASH_WIDTH - sizeof(aggr_ht_entry_32::salt)) * 8;
 		Resize<aggr_ht_entry_32>(STANDARD_VECTOR_SIZE * 2L);
 		break;
@@ -213,14 +218,14 @@ void GroupedAggregateHashTable::Resize(idx_t size) {
 
 	// size needs to be a power of 2
 	D_ASSERT((size & (size - 1)) == 0);
-	bitmask = size - 1; // 位掩码
+	bitmask = size - 1;
 
 	auto byte_size = size * sizeof(ENTRY);
 	if (byte_size > (idx_t)Storage::BLOCK_SIZE) {
 		hashes_hdl = buffer_manager.Allocate(byte_size);
 		hashes_hdl_ptr = hashes_hdl.Ptr();
 	}
-	memset(hashes_hdl_ptr, 0, byte_size); // 快速初始化为0
+	memset(hashes_hdl_ptr, 0, byte_size);
 	hashes_end_ptr = hashes_hdl_ptr + byte_size;
 	capacity = size;
 
@@ -230,7 +235,7 @@ void GroupedAggregateHashTable::Resize(idx_t size) {
 		auto hash = Load<hash_t>(ptr + hash_offset);
 		D_ASSERT((hash & bitmask) == (hash % capacity));
 		auto entry_idx = (idx_t)hash & bitmask;
-		while (hashes_arr[entry_idx].page_nr > 0) { // 开放寻址法？
+		while (hashes_arr[entry_idx].page_nr > 0) {
 			entry_idx++;
 			if (entry_idx >= capacity) {
 				entry_idx = 0;
@@ -250,23 +255,23 @@ void GroupedAggregateHashTable::Resize(idx_t size) {
 
 idx_t GroupedAggregateHashTable::AddChunk(DataChunk &groups, DataChunk &payload) {
 	Vector hashes(LogicalType::HASH);
-	groups.Hash(hashes); // 对分组列做哈希
-  
+	groups.Hash(hashes);
+
 	return AddChunk(groups, hashes, payload);
 }
 
 idx_t GroupedAggregateHashTable::AddChunk(DataChunk &groups, Vector &group_hashes, DataChunk &payload) {
 	D_ASSERT(!is_finalized);
 
-	if (groups.size() == 0) { // 如果没有数据
+	if (groups.size() == 0) {
 		return 0;
 	}
 	// dummy
 	SelectionVector new_groups(STANDARD_VECTOR_SIZE);
 
-	D_ASSERT(groups.ColumnCount() + 1 == layout.ColumnCount()); // layout的column多了一个Hash Value
+	D_ASSERT(groups.ColumnCount() + 1 == layout.ColumnCount());
 	for (idx_t i = 0; i < groups.ColumnCount(); i++) {
-		D_ASSERT(groups.GetTypes()[i] == layout.GetTypes()[i]); // 校验一下
+		D_ASSERT(groups.GetTypes()[i] == layout.GetTypes()[i]);
 	}
 
 	Vector addresses(LogicalType::POINTER);
@@ -328,7 +333,6 @@ idx_t GroupedAggregateHashTable::AddChunk(DataChunk &groups, Vector &group_hashe
 			                                    payload_idx);
 		} else {
 			RowOperations::UpdateStates(aggr, addresses, payload, payload_idx, payload.size());
-            // 更新数据
 		}
 
 		// move to the next aggregate
@@ -466,7 +470,7 @@ idx_t GroupedAggregateHashTable::FindOrCreateGroupsInternal(DataChunk &groups, V
 					addresses_ptr[index] = page_ptr + page_offset;
 
 				} else {
-					no_match_vector.set_index(no_match_count++, index); // 不匹配
+					no_match_vector.set_index(no_match_count++, index);
 				}
 			}
 		}

@@ -10,10 +10,10 @@
 #include "duckdb/common/types/time.hpp"
 #include "duckdb/common/types/timestamp.hpp"
 #include "duckdb/common/vector_operations/vector_operations.hpp"
+#include "duckdb/function/scalar/nested_functions.hpp"
 #include "duckdb/function/scalar/operators.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
 #include "duckdb/storage/statistics/numeric_statistics.hpp"
-#include "duckdb/function/scalar/nested_functions.hpp"
 
 #include <limits>
 
@@ -126,13 +126,15 @@ struct DecimalArithmeticBindData : public FunctionData {
 		auto other = (DecimalArithmeticBindData &)other_p;
 		return other.check_overflow == check_overflow;
 	}
-
+	// 这里有个check over
 	bool check_overflow;
 };
 
 template <class OP, class PROPAGATE, class BASEOP>
 static unique_ptr<BaseStatistics> PropagateNumericStats(ClientContext &context, FunctionStatisticsInput &input) {
+	// 拿出孩子的统计数据
 	auto &child_stats = input.child_stats;
+	// 拿出函数表达式
 	auto &expr = input.expr;
 	D_ASSERT(child_stats.size() == 2);
 	// can only propagate stats if the children have stats
@@ -174,10 +176,12 @@ static unique_ptr<BaseStatistics> PropagateNumericStats(ClientContext &context, 
 			auto bind_data = (DecimalArithmeticBindData *)input.bind_data;
 			bind_data->check_overflow = false;
 		}
+		// 不会溢出，改成不检查溢出的函数
 		expr.function.function = GetScalarIntegerFunction<BASEOP>(expr.return_type.InternalType());
 	}
 	auto stats =
 	    make_unique<NumericStatistics>(expr.return_type, move(new_min), move(new_max), StatisticsType::LOCAL_STATS);
+	// left和right合并有效性数据
 	stats->validity_stats = ValidityStatistics::Combine(lstats.validity_stats, rstats.validity_stats);
 	return move(stats);
 }
@@ -228,12 +232,14 @@ unique_ptr<FunctionData> BindDecimalAddSubtract(ClientContext &context, ScalarFu
 		if (scale == DecimalType::GetScale(result_type) && argument_type.InternalType() == result_type.InternalType()) {
 			bound_function.arguments[i] = argument_type;
 		} else {
+			// 设置参数的类型是result type，可能出到外面就会对实际的参数表达式进行类型转换了
 			bound_function.arguments[i] = result_type;
 		}
 	}
 	bound_function.return_type = result_type;
 	// now select the physical function to execute
 	if (bind_data->check_overflow) {
+		// 选择要overflow检查的函数
 		bound_function.function = GetScalarBinaryFunction<OPOVERFLOWCHECK>(result_type.InternalType());
 	} else {
 		bound_function.function = GetScalarBinaryFunction<OP>(result_type.InternalType());
@@ -287,7 +293,7 @@ unique_ptr<FunctionData> NopDecimalBind(ClientContext &context, ScalarFunction &
 	bound_function.arguments[0] = arguments[0]->return_type;
 	return nullptr;
 }
-
+// 看过
 ScalarFunction AddFun::GetFunction(const LogicalType &type) {
 	D_ASSERT(type.IsNumeric());
 	if (type.id() == LogicalTypeId::DECIMAL) {
@@ -296,7 +302,7 @@ ScalarFunction AddFun::GetFunction(const LogicalType &type) {
 		return ScalarFunction("+", {type}, type, ScalarFunction::NopFunction);
 	}
 }
-
+// 看过
 ScalarFunction AddFun::GetFunction(const LogicalType &left_type, const LogicalType &right_type) {
 	if (left_type.IsNumeric() && left_type.id() == right_type.id()) {
 		if (left_type.id() == LogicalTypeId::DECIMAL) {
@@ -317,6 +323,7 @@ ScalarFunction AddFun::GetFunction(const LogicalType &left_type, const LogicalTy
 
 	switch (left_type.id()) {
 	case LogicalTypeId::DATE:
+		// 这些东西，好像AddOperator本身就已经做了溢出检查了
 		if (right_type.id() == LogicalTypeId::INTEGER) {
 			return ScalarFunction("+", {left_type, right_type}, LogicalType::DATE,
 			                      ScalarFunction::BinaryFunction<date_t, int32_t, date_t, AddOperator>);
@@ -415,6 +422,7 @@ void AddFun::RegisterFunction(BuiltinFunctions &set) {
 struct NegateOperator {
 	template <class T>
 	static bool CanNegate(T input) {
+		// TODO(lokax): 注意这里的实现
 		using Limits = std::numeric_limits<T>;
 		return !(Limits::is_integer && Limits::is_signed && Limits::lowest() == input);
 	}
@@ -428,7 +436,7 @@ struct NegateOperator {
 		return -cast;
 	}
 };
-
+// 看这个
 template <>
 bool NegateOperator::CanNegate(float input) {
 	return Value::FloatIsFinite(input);
@@ -495,6 +503,7 @@ struct NegatePropagateStatistics {
 		auto max_value = istats.max.GetValueUnsafe<T>();
 		auto min_value = istats.min.GetValueUnsafe<T>();
 		if (!NegateOperator::CanNegate<T>(min_value) || !NegateOperator::CanNegate<T>(max_value)) {
+			// true表示可能溢出
 			return true;
 		}
 		// new min is -max
@@ -506,7 +515,9 @@ struct NegatePropagateStatistics {
 };
 
 static unique_ptr<BaseStatistics> NegateBindStatistics(ClientContext &context, FunctionStatisticsInput &input) {
+	// 拿出孩子的统计数据
 	auto &child_stats = input.child_stats;
+	// 拿出函数表达式
 	auto &expr = input.expr;
 	D_ASSERT(child_stats.size() == 1);
 	// can only propagate stats if the children have stats
@@ -539,9 +550,11 @@ static unique_ptr<BaseStatistics> NegateBindStatistics(ClientContext &context, F
 		}
 	}
 	if (potential_overflow) {
+		// 这两个都变成NULL值了阿
 		new_min = Value(expr.return_type);
 		new_max = Value(expr.return_type);
 	}
+	// LOCAL_STATS代表什么呢，GLOBAL_STATS又代表什么呢
 	auto stats =
 	    make_unique<NumericStatistics>(expr.return_type, move(new_min), move(new_max), StatisticsType::LOCAL_STATS);
 	if (istats.validity_stats) {
@@ -549,7 +562,9 @@ static unique_ptr<BaseStatistics> NegateBindStatistics(ClientContext &context, F
 	}
 	return move(stats);
 }
-
+// interval可以取负号
+// decimal可以, 需要额外的绑定过程
+// 其他数字类型也可以
 ScalarFunction SubtractFun::GetFunction(const LogicalType &type) {
 	if (type.id() == LogicalTypeId::INTERVAL) {
 		return ScalarFunction("-", {type}, type, ScalarFunction::UnaryFunction<interval_t, interval_t, NegateOperator>);
@@ -838,13 +853,14 @@ struct BinaryZeroIsNullWrapper {
 	template <class FUNC, class OP, class LEFT_TYPE, class RIGHT_TYPE, class RESULT_TYPE>
 	static inline RESULT_TYPE Operation(FUNC fun, LEFT_TYPE left, RIGHT_TYPE right, ValidityMask &mask, idx_t idx) {
 		if (right == 0) {
+			// 0的话，设置成null
 			mask.SetInvalid(idx);
 			return left;
 		} else {
 			return OP::template Operation<LEFT_TYPE, RIGHT_TYPE, RESULT_TYPE>(left, right);
 		}
 	}
-
+	// 表明会添加null值
 	static bool AddsNulls() {
 		return true;
 	}
@@ -903,6 +919,10 @@ static scalar_function_t GetBinaryFunctionIgnoreZero(const LogicalType &type) {
 
 void DivideFun::RegisterFunction(BuiltinFunctions &set) {
 	ScalarFunctionSet functions("/");
+	// DECIMAL不支持除法吗?，可能隐式转成double去进行了
+	// 除法好像没有溢出检查，不过除法好像也不用吧？
+	// /和%没有专门去实现DECIMAL的版本？
+	// 比如11 / 5，按照普通的算法去实现其实答案还是2
 	for (auto &type : LogicalType::Numeric()) {
 		if (type.id() == LogicalTypeId::DECIMAL) {
 			continue;
@@ -955,6 +975,8 @@ hugeint_t ModuloOperator::Operation(hugeint_t left, hugeint_t right) {
 void ModFun::RegisterFunction(BuiltinFunctions &set) {
 	ScalarFunctionSet functions("%");
 	for (auto &type : LogicalType::Numeric()) {
+		// /和%没有专门去实现DECIMAL的版本？
+		// 比如11 / 5，按照普通的算法去实现其实答案还是2
 		if (type.id() == LogicalTypeId::DECIMAL) {
 			continue;
 		} else {

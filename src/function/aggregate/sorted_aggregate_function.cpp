@@ -99,12 +99,14 @@ struct SortedAggregateFunction {
 		idx_t col = 0;
 
 		arg_chunk.InitializeEmpty(order_bind->arg_types);
+        // 直接引用输入数据
 		for (auto &dst : arg_chunk.data) {
 			dst.Reference(inputs[col++]);
 		}
 		arg_chunk.SetCardinality(count);
 
 		sort_chunk.InitializeEmpty(order_bind->sort_types);
+        // 直接引用输入数据
 		for (auto &dst : sort_chunk.data) {
 			dst.Reference(inputs[col++]);
 		}
@@ -113,12 +115,15 @@ struct SortedAggregateFunction {
 
 	static void SimpleUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count, data_ptr_t state,
 	                         idx_t count) {
+        // 拿出bind data
 		const auto order_bind = (SortedAggregateBindData *)aggr_input_data.bind_data;
 		DataChunk arg_chunk;
 		DataChunk sort_chunk;
+        // 把数据投影到arg chunk和sort chunk上
 		ProjectInputs(inputs, order_bind, input_count, count, arg_chunk, sort_chunk);
 
 		const auto order_state = (SortedAggregateState *)state;
+        // 添加数据到chunk collection中
 		order_state->arguments.Append(arg_chunk);
 		order_state->ordering.Append(sort_chunk);
 	}
@@ -179,12 +184,14 @@ struct SortedAggregateFunction {
 		if (source.arguments.Count() == 0) {
 			return;
 		}
+        // 添加到target
 		target->arguments.Append(const_cast<ChunkCollection &>(source.arguments));
 		target->ordering.Append(const_cast<ChunkCollection &>(source.ordering));
 	}
 
 	static void Finalize(Vector &states, AggregateInputData &aggr_input_data, Vector &result, idx_t count,
 	                     idx_t offset) {
+        // 拿出bind data
 		const auto order_bind = (SortedAggregateBindData *)aggr_input_data.bind_data;
 
 		//	 Reusable inner state
@@ -195,8 +202,11 @@ struct SortedAggregateFunction {
 		vector<idx_t> reordering;
 
 		// State variables
+        // 输入参数的列数
 		const auto input_count = order_bind->function.arguments.size();
+        // 拿出内部的bind info
 		auto bind_info = order_bind->bind_info.get();
+        // 创建这么个东西
 		AggregateInputData aggr_bind_info(bind_info, Allocator::DefaultAllocator());
 
 		// Inner aggregate APIs
@@ -207,6 +217,7 @@ struct SortedAggregateFunction {
 		auto finalize = order_bind->function.finalize;
 
 		auto sdata = FlatVector::GetData<SortedAggregateState *>(states);
+        // 遍历每一条数据
 		for (idx_t i = 0; i < count; ++i) {
 			initialize(agg_state.data());
 			auto state = sdata[i];
@@ -215,7 +226,9 @@ struct SortedAggregateFunction {
 			const auto agg_count = state->ordering.Count();
 			if (agg_count > 0) {
 				reordering.resize(agg_count);
+                // 这里进行排序
 				state->ordering.Sort(order_bind->order_sense, order_bind->null_order, reordering.data());
+                // 再reorder
 				state->arguments.Reorder(reordering.data());
 			}
 

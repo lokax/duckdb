@@ -446,6 +446,7 @@ interval_t Interval::Invert(interval_t interval) {
 }
 
 date_t Interval::Add(date_t left, interval_t right) {
+    // 无限值，直接返回
 	if (!Date::IsFinite(left)) {
 		return left;
 	}
@@ -463,6 +464,7 @@ date_t Interval::Add(date_t left, interval_t right) {
 			year--;
 			month += Interval::MONTHS_PER_YEAR;
 		}
+        // 这里计算好像不太对,好像是对的，有点道理
 		day = MinValue<int32_t>(day, Date::MonthDays(year, month));
 		result = Date::FromDate(year, month, day);
 	} else {

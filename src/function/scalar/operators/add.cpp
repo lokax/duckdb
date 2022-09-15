@@ -19,6 +19,7 @@ namespace duckdb {
 template <>
 float AddOperator::Operation(float left, float right) {
 	auto result = left + right;
+    // 直接相加后检查是否溢出
 	if (!Value::FloatIsFinite(result)) {
 		throw OutOfRangeException("Overflow in addition of float!");
 	}
@@ -65,12 +66,14 @@ date_t AddOperator::Operation(int32_t left, date_t right) {
 
 template <>
 timestamp_t AddOperator::Operation(date_t left, dtime_t right) {
+    // 如果是无限值，则不论怎么操作都是无限值
 	if (left == date_t::infinity()) {
 		return timestamp_t::infinity();
 	} else if (left == date_t::ninfinity()) {
 		return timestamp_t::ninfinity();
 	}
 	timestamp_t result;
+    // 通过date_t和dtime_t相加得到timestamp
 	if (!Timestamp::TryFromDatetime(left, right, result)) {
 		throw OutOfRangeException("Timestamp out of range");
 	}
@@ -87,6 +90,7 @@ date_t AddOperator::Operation(date_t left, interval_t right) {
 	return Interval::Add(left, right);
 }
 
+// 反过来
 template <>
 date_t AddOperator::Operation(interval_t left, date_t right) {
 	return AddOperator::Operation<date_t, interval_t, date_t>(right, left);
@@ -132,6 +136,7 @@ bool TryAddOperator::Operation(uint32_t left, uint32_t right, uint32_t &result) 
 
 template <>
 bool TryAddOperator::Operation(uint64_t left, uint64_t right, uint64_t &result) {
+    //TODO(lokax): 这种方式检查溢出，有点东西
 	if (NumericLimits<uint64_t>::Maximum() - left < right) {
 		return false;
 	}
@@ -160,6 +165,7 @@ bool TryAddOperator::Operation(int64_t left, int64_t right, int64_t &result) {
 		return false;
 	}
 #else
+    // TODO(lokax): 这种检查思路有点意思
 	// https://blog.regehr.org/archives/1139
 	result = int64_t((uint64_t)left + (uint64_t)right);
 	if ((left < 0 && right < 0 && result >= 0) || (left >= 0 && right >= 0 && result < 0)) {
@@ -175,6 +181,7 @@ bool TryAddOperator::Operation(int64_t left, int64_t right, int64_t &result) {
 template <class T, T min, T max>
 bool TryDecimalAddTemplated(T left, T right, T &result) {
 	if (right < 0) {
+        // 相当于left + right < min, 这个时候就溢出了
 		if (min - right > left) {
 			return false;
 		}
@@ -183,6 +190,7 @@ bool TryDecimalAddTemplated(T left, T right, T &result) {
 			return false;
 		}
 	}
+    // 其实Decimal的加法也就正常进行相加
 	result = left + right;
 	return true;
 }
@@ -204,6 +212,7 @@ bool TryDecimalAdd::Operation(int64_t left, int64_t right, int64_t &result) {
 
 template <>
 bool TryDecimalAdd::Operation(hugeint_t left, hugeint_t right, hugeint_t &result) {
+    // 这里看起来没有像上面那样做溢出检查阿？
 	result = left + right;
 	if (result <= -Hugeint::POWERS_OF_TEN[38] || result >= Hugeint::POWERS_OF_TEN[38]) {
 		return false;

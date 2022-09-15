@@ -159,10 +159,15 @@ date_t Timestamp::GetDate(timestamp_t timestamp) {
 	} else if (timestamp == timestamp_t::ninfinity()) {
 		return date_t::ninfinity();
 	}
+    // 假设每天100 micros second
+    // 那么-100，应该算-1天
+    // (-100 + 1) / 100  - 1 ==> -1 good!  
 	return date_t((timestamp.value + (timestamp.value < 0)) / Interval::MICROS_PER_DAY - (timestamp.value < 0));
 }
 
+// dtime_t里面存的是微秒
 dtime_t Timestamp::GetTime(timestamp_t timestamp) {
+    // 无限值，直接抛转换异常
 	if (!IsFinite(timestamp)) {
 		throw ConversionException("Can't get TIME of infinite TIMESTAMP");
 	}
@@ -177,6 +182,7 @@ bool Timestamp::TryFromDatetime(date_t date, dtime_t time, timestamp_t &result) 
 	if (!TryAddOperator::Operation<int64_t, int64_t, int64_t>(result.value, time.micros, result.value)) {
 		return false;
 	}
+    // 返回是不是有限值
 	return Timestamp::IsFinite(result);
 }
 
@@ -189,6 +195,7 @@ timestamp_t Timestamp::FromDatetime(date_t date, dtime_t time) {
 }
 
 void Timestamp::Convert(timestamp_t timestamp, date_t &out_date, dtime_t &out_time) {
+    // 得到日期
 	out_date = GetDate(timestamp);
 	int64_t days_micros;
 	if (!TryMultiplyOperator::Operation<int64_t, int64_t, int64_t>(out_date.days, Interval::MICROS_PER_DAY,

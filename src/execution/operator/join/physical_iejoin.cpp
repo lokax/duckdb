@@ -532,15 +532,22 @@ bool IEJoinUnion::NextRow() {
 		op2->SetIndex(i);
 		for (; off2->GetIndex() < n; ++(*off2)) {
 			if (!off2->Compare(*op2)) {
+                // 比较失败就跳出这里？
 				break;
 			}
 			const auto p2 = p[off2->GetIndex()];
-			if (li[p2] < 0) { // < 0是右边的数据
+			if (li[p2] < 0) { // < 0是右边的数据 （l2）
 				// Only mark rhs matches.
 				bit_mask.SetValid(p2); // 设置成有效
 				bloom_filter.SetValid(p2 / BLOOM_CHUNK_BITS);
 			}
 		}
+        // (1, 3)
+        //  y asc [3 3] rids [1 -1]
+        // x desc [1 1] p []
+        // 
+        // 假设 x [3 5 5 10] L2 `>=` asc 
+        //      y [10 9 7 5] L1 '>=' desc
 
 		// 9.  if (op1 ∈ {≤,≥} and op2 ∈ {≤,≥}) eqOff = 0
 		// 10. else eqOff = 1

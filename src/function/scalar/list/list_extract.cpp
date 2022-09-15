@@ -36,12 +36,14 @@ void ListExtractTemplate(idx_t count, UnifiedVectorFormat &list_data, UnifiedVec
 	for (idx_t i = 0; i < count; i++) {
 		auto list_index = list_data.sel->get_index(i);
 		auto offsets_index = offsets_data.sel->get_index(i);
+        // 都是有效值
 		if (list_data.validity.RowIsValid(list_index) && offsets_data.validity.RowIsValid(offsets_index)) {
 			auto list_entry = ((list_entry_t *)list_data.data)[list_index];
 			auto offsets_entry = ((int64_t *)offsets_data.data)[offsets_index];
 
 			// 1-based indexing
 			if (offsets_entry == 0) {
+                // 设置成NULL值
 				result_mask.SetInvalid(i);
 				continue;
 			}
@@ -49,6 +51,7 @@ void ListExtractTemplate(idx_t count, UnifiedVectorFormat &list_data, UnifiedVec
 
 			idx_t child_offset;
 			if (offsets_entry < 0) {
+                // 超出范围了
 				if ((idx_t)-offsets_entry > list_entry.length) {
 					result_mask.SetInvalid(i);
 					continue;
@@ -126,6 +129,7 @@ static void ExecuteListExtractInternal(const idx_t count, UnifiedVectorFormat &l
 		D_ASSERT(entries.size() == result_entries.size());
 		// extract the child entries of the struct
 		for (idx_t i = 0; i < entries.size(); i++) {
+            // 递归处理每一个孩子
 			ExecuteListExtractInternal(count, list, offsets, *entries[i], list_size, *result_entries[i]);
 		}
 		// extract the validity mask
@@ -197,7 +201,8 @@ static void ListExtractFunction(DataChunk &args, ExpressionState &state, Vector 
 
 static unique_ptr<FunctionData> ListExtractBind(ClientContext &context, ScalarFunction &bound_function,
                                                 vector<unique_ptr<Expression>> &arguments) {
-	D_ASSERT(bound_function.arguments.size() == 2);
+	// 断言参数只能有两个
+    D_ASSERT(bound_function.arguments.size() == 2);
 	D_ASSERT(LogicalTypeId::LIST == arguments[0]->return_type.id());
 	// list extract returns the child type of the list as return type
 	bound_function.return_type = ListType::GetChildType(arguments[0]->return_type);

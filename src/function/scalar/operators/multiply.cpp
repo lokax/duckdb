@@ -15,6 +15,7 @@ namespace duckdb {
 //===--------------------------------------------------------------------===//
 template <>
 float MultiplyOperator::Operation(float left, float right) {
+    // 通过这种方式检查
 	auto result = left * right;
 	if (!Value::FloatIsFinite(result)) {
 		throw OutOfRangeException("Overflow in multiplication of float!");
@@ -74,12 +75,15 @@ bool TryMultiplyOperator::Operation(uint32_t left, uint32_t right, uint32_t &res
 template <>
 bool TryMultiplyOperator::Operation(uint64_t left, uint64_t right, uint64_t &result) {
 	if (left > right) {
+        // 左边更小
 		std::swap(left, right);
 	}
 	if (left > NumericLimits<uint32_t>::Maximum()) {
 		return false;
 	}
+    // 高32位
 	uint32_t c = right >> 32;
+    // 低32位
 	uint32_t d = NumericLimits<uint32_t>::Maximum() & right;
 	uint64_t r = left * c;
 	uint64_t s = left * d;

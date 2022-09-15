@@ -89,11 +89,12 @@ void CardinalityEstimator::AddToEquivalenceSets(FilterInfo *filter_info, vector<
 		relations_to_tdoms.back().filters.push_back(filter_info);
 	}
 }
-
+// lokax:
 void CardinalityEstimator::AddRelationToColumnMapping(ColumnBinding key, ColumnBinding value) {
 	relation_column_to_original_column[key] = value;
 }
 
+// 拷贝一份
 void CardinalityEstimator::CopyRelationMap(column_binding_map_t<ColumnBinding> &child_binding_map) {
 	for (auto &binding_map : relation_column_to_original_column) {
 		child_binding_map[binding_map.first] = binding_map.second;
@@ -133,13 +134,17 @@ void CardinalityEstimator::VerifySymmetry(JoinNode *result, JoinNode *entry) {
 void CardinalityEstimator::InitTotalDomains() {
 	auto remove_start = std::remove_if(relations_to_tdoms.begin(), relations_to_tdoms.end(),
 	                                   [](RelationsToTDom &r_2_tdom) { return r_2_tdom.equivalent_relations.empty(); });
+    // 把eq relations是空的都移除掉
 	relations_to_tdoms.erase(remove_start, relations_to_tdoms.end());
 }
 
+// 代价等于基数加上左右的代价
 double CardinalityEstimator::ComputeCost(JoinNode *left, JoinNode *right, double expected_cardinality) {
 	return expected_cardinality + left->GetCost() + right->GetCost();
 }
 
+// 估计笛卡尔积
+// 两个基数相乘
 double CardinalityEstimator::EstimateCrossProduct(const JoinNode *left, const JoinNode *right) {
 	// need to explicity use double here, otherwise auto converts it to an int, then
 	// there is an autocast in the return.
@@ -148,6 +153,7 @@ double CardinalityEstimator::EstimateCrossProduct(const JoinNode *left, const Jo
 	           : left->GetCardinality() * right->GetCardinality();
 }
 
+// lokax:
 void CardinalityEstimator::AddRelationColumnMapping(LogicalGet *get, idx_t relation_id) {
 	for (idx_t it = 0; it < get->column_ids.size(); it++) {
 		auto key = ColumnBinding(relation_id, it);
@@ -156,6 +162,7 @@ void CardinalityEstimator::AddRelationColumnMapping(LogicalGet *get, idx_t relat
 	}
 }
 
+// 更新denomination
 void UpdateDenom(Subgraph2Denominator *relation_2_denom, RelationsToTDom *relation_to_tdom) {
 	relation_2_denom->denom *=
 	    relation_to_tdom->has_tdom_hll ? relation_to_tdom->tdom_hll : relation_to_tdom->tdom_no_hll;
@@ -299,6 +306,7 @@ static LogicalGet *GetLogicalGet(LogicalOperator *op) {
 		break;
 	case LogicalOperatorType::LOGICAL_COMPARISON_JOIN: {
 		LogicalComparisonJoin *join = (LogicalComparisonJoin *)op;
+        // Mark和Left才拿左边，其他什么都不做？
 		if (join->join_type == JoinType::MARK || join->join_type == JoinType::LEFT) {
 			auto child = join->children.at(0).get();
 			get = GetLogicalGet(child);
@@ -311,14 +319,14 @@ static LogicalGet *GetLogicalGet(LogicalOperator *op) {
 	}
 	return get;
 }
-
+// lokax:
 void CardinalityEstimator::MergeBindings(idx_t binding_index, idx_t relation_id,
                                          vector<column_binding_map_t<ColumnBinding>> &child_binding_maps) {
 	for (auto &map_set : child_binding_maps) {
 		for (auto &mapping : map_set) {
 			ColumnBinding relation_bindings = mapping.first;
 			ColumnBinding actual_bindings = mapping.second;
-
+            // 如果实际的table index和参数的table index一样
 			if (actual_bindings.table_index == binding_index) {
 				auto key = ColumnBinding(relation_id, relation_bindings.column_index);
 				AddRelationToColumnMapping(key, actual_bindings);
@@ -327,6 +335,7 @@ void CardinalityEstimator::MergeBindings(idx_t binding_index, idx_t relation_id,
 	}
 }
 
+// 排序
 bool SortTdoms(const RelationsToTDom &a, const RelationsToTDom &b) {
 	if (a.has_tdom_hll && b.has_tdom_hll) {
 		return a.tdom_hll > b.tdom_hll;
@@ -345,17 +354,23 @@ void CardinalityEstimator::InitCardinalityEstimatorProps(vector<struct NodeOp> *
 	InitEquivalentRelations(filter_infos);
 	InitTotalDomains();
 	for (idx_t i = 0; i < node_ops->size(); i++) {
+        // 拿出join node
 		auto join_node = (*node_ops)[i].node.get();
+        // 拿出算子
 		auto op = (*node_ops)[i].op;
+        // 给join node设置base table的基数
 		join_node->SetBaseTableCardinality(op->EstimateCardinality(context));
+        // 如果是连接
 		if (op->type == LogicalOperatorType::LOGICAL_COMPARISON_JOIN) {
 			auto &join = (LogicalComparisonJoin &)*op;
+            // 只对左外连接处理?
 			if (join.join_type == JoinType::LEFT) {
 				// TODO: inspect child operators to get a more accurate cost
 				// and cardinality estimation. If an base op is a Logical Comparison join
 				// it is probably a left join, so cost of the larger table is a fine
 				// estimate
 				// No need to update a mark join cost because I say so.
+                // 设置代价是base table的基数?
 				join_node->SetCost(join_node->GetBaseTableCardinality());
 			}
 		}
@@ -364,6 +379,7 @@ void CardinalityEstimator::InitCardinalityEstimatorProps(vector<struct NodeOp> *
 		UpdateTotalDomains(join_node, op);
 	}
 
+    // 由高到低进行排序
 	// sort relations from greatest tdom to lowest tdom.
 	std::sort(relations_to_tdoms.begin(), relations_to_tdoms.end(), SortTdoms);
 }
@@ -468,6 +484,7 @@ idx_t CardinalityEstimator::InspectConjunctionAND(idx_t cardinality, idx_t colum
 		}
 		auto column_count = 0;
 		if (base_stats) {
+            // 不同值的数量
 			column_count = base_stats->GetDistinctCount();
 		}
 		auto filtered_card = cardinality;
@@ -514,12 +531,15 @@ idx_t CardinalityEstimator::InspectConjunctionOR(idx_t cardinality, idx_t column
 
 idx_t CardinalityEstimator::InspectTableFilters(idx_t cardinality, LogicalOperator *op, TableFilterSet *table_filters) {
 	idx_t cardinality_after_filters = cardinality;
+    // 拿出get算子
 	auto get = GetLogicalGet(op);
 	unique_ptr<BaseStatistics> column_statistics;
+    // 遍历每一个table filter
 	for (auto &it : table_filters->filters) {
 		column_statistics = nullptr;
 		if (get->bind_data && get->function.name.compare("seq_scan") == 0) {
 			auto &table_scan_bind_data = (TableScanBindData &)*get->bind_data;
+            // 获取列的统计数据
 			column_statistics = get->function.statistics(context, &table_scan_bind_data, it.first);
 		}
 		if (it.second->filter_type == TableFilterType::CONJUNCTION_AND) {
@@ -538,18 +558,23 @@ idx_t CardinalityEstimator::InspectTableFilters(idx_t cardinality, LogicalOperat
 	// and there are other table filters, use default selectivity.
 	bool has_equality_filter = (cardinality_after_filters != cardinality);
 	if (!has_equality_filter && !table_filters->filters.empty()) {
+        // 依然使用默认的选择性
 		cardinality_after_filters = MaxValue<idx_t>(cardinality * DEFAULT_SELECTIVITY, 1);
 	}
 	return cardinality_after_filters;
 }
 
 void CardinalityEstimator::EstimateBaseTableCardinality(JoinNode *node, LogicalOperator *op) {
+    // 是否是filter算子
 	auto has_logical_filter = IsLogicalFilter(op);
+    // 从get里面拿出table fiter
 	auto table_filters = GetTableFilters(op);
 
+    // 拿出base table的基数
 	auto card_after_filters = node->GetBaseTableCardinality();
 	// Logical Filter on a seq scan
 	if (has_logical_filter) {
+        // 默认选择性是0.2
 		card_after_filters *= DEFAULT_SELECTIVITY;
 	} else if (table_filters) {
 		double inspect_result = (double)InspectTableFilters(card_after_filters, op, table_filters);

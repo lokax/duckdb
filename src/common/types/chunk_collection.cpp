@@ -386,10 +386,13 @@ void ChunkCollection::Reorder(idx_t order_org[]) {
 	// adapted from https://stackoverflow.com/a/7366196/2652376
 
 	auto val_buf = vector<Value>();
+    // resize列的数量
 	val_buf.resize(ColumnCount());
 
 	idx_t j, k;
+    // 遍历每一条数据
 	for (idx_t i = 0; i < count; i++) {
+        // 遍历每一列，读出Value,保存下来
 		for (idx_t col_idx = 0; col_idx < ColumnCount(); col_idx++) {
 			val_buf[col_idx] = GetValue(col_idx, i);
 		}

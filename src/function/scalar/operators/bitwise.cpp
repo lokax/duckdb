@@ -1,6 +1,6 @@
-#include "duckdb/function/scalar/operators.hpp"
-#include "duckdb/common/vector_operations/vector_operations.hpp"
 #include "duckdb/common/types/cast_helpers.hpp"
+#include "duckdb/common/vector_operations/vector_operations.hpp"
+#include "duckdb/function/scalar/operators.hpp"
 
 namespace duckdb {
 
@@ -41,6 +41,7 @@ static scalar_function_t GetScalarIntegerUnaryFunction(const LogicalType &type) 
 	return function;
 }
 
+// 只正对整数,浮点和固点似乎都是不支持的
 template <class OP>
 static scalar_function_t GetScalarIntegerBinaryFunction(const LogicalType &type) {
 	scalar_function_t function;
@@ -158,6 +159,9 @@ struct BitwiseShiftLeftOperator {
 		if (shift == 0) {
 			return input;
 		}
+		// 这里做了检查，确保 1::INT16 << 15 能够检查出溢出
+		// 有点意思
+		// 我觉得is_signed才做这个处理，你觉得呢
 		TA max_value = (TA(1) << (max_shift - shift - 1));
 		if (input >= max_value) {
 			throw OutOfRangeException("Overflow in left shift (%s << %s)", NumericHelper::ToString(input),
@@ -181,6 +185,7 @@ void LeftShiftFun::RegisterFunction(BuiltinFunctions &set) {
 //===--------------------------------------------------------------------===//
 template <class T>
 bool RightShiftInRange(T shift) {
+	// 我觉得这个东西应该像上面那个东西一样
 	return shift >= 0 && shift < T(sizeof(T) * 8);
 }
 

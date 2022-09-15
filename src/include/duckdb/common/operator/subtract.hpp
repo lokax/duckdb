@@ -43,7 +43,7 @@ struct TrySubtractOperator {
 		throw InternalException("Unimplemented type for TrySubtractOperator");
 	}
 };
-
+// 这些东西需要进行声明
 template <>
 bool TrySubtractOperator::Operation(uint8_t left, uint8_t right, uint8_t &result);
 template <>

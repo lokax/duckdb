@@ -38,6 +38,7 @@ DistinctAggregateData::DistinctAggregateData(Allocator &allocator, const vector<
 		}
 		//! Populate the group with the children of the aggregate
 		for (size_t set_idx = 0; set_idx < aggregate.children.size(); set_idx++) {
+            // 对这些孩子做去重
 			grouping_sets[table_idx].insert(set_idx);
 		}
 		// Create the hashtable for the aggregate
@@ -58,6 +59,7 @@ DistinctAggregateData::DistinctAggregateData(Allocator &allocator, const vector<
 		distinct_output_chunks[table_idx] = make_unique<DataChunk>();
 		distinct_output_chunks[table_idx]->Initialize(client, chunk_types);
 	}
+    // payload chunk同样包含每一个孩子，不论是不是distinct聚合的孩子
 	if (!payload_types.empty()) {
 		payload_chunk.Initialize(allocator, payload_types);
 	}
