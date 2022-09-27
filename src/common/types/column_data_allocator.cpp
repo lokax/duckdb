@@ -43,27 +43,33 @@ void ColumnDataAllocator::AllocateBlock() {
 
 void ColumnDataAllocator::AllocateData(idx_t size, uint32_t &block_id, uint32_t &offset,
                                        ChunkManagementState *chunk_state) {
+    // 内存分配器直接分配
 	if (type == ColumnDataAllocatorType::IN_MEMORY_ALLOCATOR) {
 		// in-memory allocator
 		auto allocated = alloc.allocator->Allocate(size);
 		auto pointer_value = uintptr_t(allocated.get());
+        // 如果是32位架构
 		if (sizeof(uintptr_t) == sizeof(uint32_t)) {
 			block_id = uint32_t(pointer_value);
 		} else if (sizeof(uintptr_t) == sizeof(uint64_t)) {
+            // 64位架构，block id存低位
 			block_id = uint32_t(pointer_value & 0xFFFFFFFF);
 			offset = uint32_t(pointer_value >> 32);
 		} else {
 			throw InternalException("ColumnDataCollection: Architecture not supported!?");
 		}
+        // 保存所有权
 		allocated_data.push_back(move(allocated));
 		return;
 	}
+    // 分配新块
 	if (blocks.empty() || blocks.back().Capacity() < size) {
 		AllocateBlock();
 		if (chunk_state && !blocks.empty()) {
 			auto &last_block = blocks.back();
 			auto new_block_id = blocks.size() - 1;
 			auto pinned_block = alloc.buffer_manager->Pin(last_block.handle);
+            // 保存所有权
 			chunk_state->handles[new_block_id] = move(pinned_block);
 		}
 	}
@@ -74,12 +80,15 @@ void ColumnDataAllocator::AllocateData(idx_t size, uint32_t &block_id, uint32_t 
 	block.size += size;
 }
 
+// 这个怎么这么诡异？
 void ColumnDataAllocator::Initialize(ColumnDataAllocator &other) {
 	D_ASSERT(other.HasBlocks());
 	blocks.push_back(other.blocks.back());
 }
 
+
 data_ptr_t ColumnDataAllocator::GetDataPointer(ChunkManagementState &state, uint32_t block_id, uint32_t offset) {
+    // 构造指针
 	if (type == ColumnDataAllocatorType::IN_MEMORY_ALLOCATOR) {
 		// in-memory allocator: construct pointer from block_id and offset
 		if (sizeof(uintptr_t) == sizeof(uint32_t)) {
@@ -92,6 +101,7 @@ data_ptr_t ColumnDataAllocator::GetDataPointer(ChunkManagementState &state, uint
 			throw InternalException("ColumnDataCollection: Architecture not supported!?");
 		}
 	}
+    // 直接p拿pin handle的数据
 	D_ASSERT(state.handles.find(block_id) != state.handles.end());
 	return state.handles[block_id].Ptr() + offset;
 }
@@ -110,13 +120,16 @@ void ColumnDataAllocator::InitializeChunkState(ChunkManagementState &state, Chun
 	bool found_handle;
 	do {
 		found_handle = false;
+        // 遍历每一个handle
 		for (auto it = state.handles.begin(); it != state.handles.end(); it++) {
+            // block_ids中找到，说明还是需要的数据，就continue，不需要Unpin
 			if (chunk.block_ids.find(it->first) != chunk.block_ids.end()) {
 				// still required: do not release
 				continue;
 			}
 			state.handles.erase(it);
 			found_handle = true;
+            // 这里break是因为迭代器失效的问题
 			break;
 		}
 	} while (found_handle);

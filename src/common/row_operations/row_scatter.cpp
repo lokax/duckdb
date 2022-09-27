@@ -167,6 +167,7 @@ void RowOperations::Scatter(DataChunk &columns, UnifiedVectorFormat col_data[], 
 			// Pointer to this row in the heap block
 			Store<data_ptr_t>(data_locations[i], row + heap_pointer_offset); // 把string_heap中的指针存进这个偏移量指定的位置
 			// Row size is stored in the heap in front of each row
+            // 这里存了size
 			Store<uint32_t>(entry_sizes[i], data_locations[i]);
 			data_locations[i] += sizeof(uint32_t);
 		}

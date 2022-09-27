@@ -188,6 +188,7 @@ void SumFun::RegisterFunction(BuiltinFunctions &set) {
 	sum.AddFunction(AggregateFunction({LogicalTypeId::DECIMAL}, LogicalTypeId::DECIMAL, nullptr, nullptr, nullptr,
 	                                  nullptr, nullptr, FunctionNullHandling::DEFAULT_NULL_HANDLING, nullptr,
 	                                  BindDecimalSum));
+    // 只注册有符号数？
 	sum.AddFunction(GetSumAggregate(PhysicalType::INT16));
 	sum.AddFunction(GetSumAggregate(PhysicalType::INT32));
 	sum.AddFunction(GetSumAggregate(PhysicalType::INT64));

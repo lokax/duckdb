@@ -21,6 +21,7 @@ static void ArgMinMaxDestroyValue(T value) {
 template <>
 void ArgMinMaxDestroyValue(string_t value) {
 	if (!value.IsInlined()) {
+        // 析构内存
 		delete[] value.GetDataUnsafe();
 	}
 }
@@ -33,6 +34,7 @@ static void ArgMinMaxAssignValue(T &target, T new_value, bool is_initialized) {
 template <>
 void ArgMinMaxAssignValue(string_t &target, string_t new_value, bool is_initialized) {
 	if (is_initialized) {
+        // 先析构掉target
 		ArgMinMaxDestroyValue(target);
 	}
 	if (new_value.IsInlined()) {
@@ -132,6 +134,7 @@ template <class OP, class T, class T2>
 AggregateFunction GetArgMinMaxFunctionInternal(const LogicalType &arg_2, const LogicalType &arg) {
 	auto function = AggregateFunction::BinaryAggregate<ArgMinMaxState<T, T2>, T, T2, T, OP>(arg, arg_2, arg);
 	if (arg.InternalType() == PhysicalType::VARCHAR || arg_2.InternalType() == PhysicalType::VARCHAR) {
+        // 设置析构函数
 		function.destructor = AggregateFunction::StateDestroy<ArgMinMaxState<T, T2>, OP>;
 	}
 	return function;

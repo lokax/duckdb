@@ -52,6 +52,7 @@ void RemoveUnusedColumns::VisitOperator(LogicalOperator &op) {
 		// aggregate
 		if (!everything_referenced) {
 			// FIXME: groups that are not referenced need to stay -> but they don't need to be scanned and output!
+            // 可以push projection的思路
 			auto &aggr = (LogicalAggregate &)op;
 			ClearUnusedExpressions(aggr.expressions, aggr.aggregate_index);
 			if (aggr.expressions.empty() && aggr.groups.empty()) {

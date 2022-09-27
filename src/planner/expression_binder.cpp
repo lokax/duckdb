@@ -172,7 +172,10 @@ unique_ptr<Expression> ExpressionBinder::Bind(unique_ptr<ParsedExpression> &expr
                                               bool root_expression) {
 	// bind the main expression
 	auto error_msg = Bind(&expr, 0, root_expression);
-	if (!error_msg.empty()) { // 绑定失败
+	if (!error_msg.empty()) {
+		if (!CanContainSubqueries()) {
+			throw BinderException(error_msg);
+		}
 		// failed to bind: try to bind correlated columns in the expression (if any)
 		bool success = BindCorrelatedColumns(expr); // 绑定相关列
 		if (!success) {
@@ -230,6 +233,10 @@ string ExpressionBinder::Bind(unique_ptr<ParsedExpression> *expr, idx_t depth, b
 		be->expr->alias = alias;
 	}
 	return string();
+}
+
+bool ExpressionBinder::CanContainSubqueries() {
+	return true;
 }
 
 } // namespace duckdb

@@ -4,6 +4,7 @@
 
 namespace duckdb {
 
+// Group Index和Aggregate Index为什么还分开了？
 LogicalAggregate::LogicalAggregate(idx_t group_index, idx_t aggregate_index, vector<unique_ptr<Expression>> select_list)
     : LogicalOperator(LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY, move(select_list)), group_index(group_index),
       aggregate_index(aggregate_index), groupings_index(DConstants::INVALID_INDEX) {

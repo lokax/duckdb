@@ -164,6 +164,7 @@ void AbsFun::RegisterFunction(BuiltinFunctions &set) {
 	for (auto &type : LogicalType::Numeric()) {
 		switch (type.id()) {
 		case LogicalTypeId::DECIMAL:
+            // 不检查溢出？好像也不用怕溢出
 			abs.AddFunction(ScalarFunction({type}, type, nullptr, DecimalUnaryOpBind<AbsOperator>));
 			break;
 		case LogicalTypeId::TINYINT:
@@ -179,6 +180,7 @@ void AbsFun::RegisterFunction(BuiltinFunctions &set) {
 		case LogicalTypeId::USMALLINT:
 		case LogicalTypeId::UINTEGER:
 		case LogicalTypeId::UBIGINT:
+            // 这些什么都不做
 			abs.AddFunction(ScalarFunction({type}, type, ScalarFunction::NopFunction));
 			break;
 		default:
@@ -222,6 +224,8 @@ struct HugeIntBitCntOperator {
 	}
 };
 
+// TODO: 添加无符号数？
+// 为什么这里不这么做？
 void BitCountFun::RegisterFunction(BuiltinFunctions &set) {
 	ScalarFunctionSet functions("bit_count");
 	functions.AddFunction(ScalarFunction({LogicalType::TINYINT}, LogicalType::TINYINT,
@@ -281,6 +285,7 @@ void SignFun::RegisterFunction(BuiltinFunctions &set) {
 		if (type.id() == LogicalTypeId::DECIMAL) {
 			continue;
 		} else {
+            // 返回类型是tinyint
 			sign.AddFunction(
 			    ScalarFunction({type}, LogicalType::TINYINT,
 			                   ScalarFunction::GetScalarUnaryFunctionFixedReturn<int8_t, SignOperator>(type)));
@@ -676,6 +681,7 @@ struct PowOperator {
 };
 
 void PowFun::RegisterFunction(BuiltinFunctions &set) {
+    // 必须转成double类型处理
 	ScalarFunction power_function("pow", {LogicalType::DOUBLE, LogicalType::DOUBLE}, LogicalType::DOUBLE,
 	                              ScalarFunction::BinaryFunction<double, double, double, PowOperator>);
 	set.AddFunction(power_function);

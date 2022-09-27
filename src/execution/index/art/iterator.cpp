@@ -58,19 +58,24 @@ bool IteratorCurrentKey::operator==(const Key &k) const {
 	return true;
 }
 
+// 查找最小值
 void Iterator::FindMinimum(Node &node) {
 	Node *next = nullptr;
 	idx_t pos = 0;
+    // 把前缀push到cur_key中
 	// reconstruct the prefix
 	for (idx_t i = 0; i < node.prefix.Size(); i++) {
 		cur_key.Push(node.prefix[i]);
 	}
 	switch (node.type) {
 	case NodeType::NLeaf:
+        // 设置一下last_leaf
 		last_leaf = (Leaf *)&node;
 		return;
 	case NodeType::N4: {
+        // 最左边的孩子
 		next = ((Node4 &)node).children[0].Unswizzle(*art);
+        // push进去第一个key，至于前缀，已经在上面处理过了
 		cur_key.Push(((Node4 &)node).key[0]);
 		break;
 	}
@@ -98,7 +103,9 @@ void Iterator::FindMinimum(Node &node) {
 		break;
 	}
 	}
+    // 把这个位置推到栈上
 	nodes.push(IteratorEntry(&node, pos));
+    // 递归进行处理
 	FindMinimum(*next);
 }
 
@@ -171,13 +178,17 @@ bool Iterator::Next() {
 		top.pos = node->GetNextPos(top.pos);
 		if (top.pos != DConstants::INVALID_INDEX) {
 			// add key-byte of the new node
+            // push另一个key进去
 			PushKey(node, top.pos);
+            // 拿出孩子
 			auto next_node = node->GetChild(*art, top.pos);
+            // 孩子的前缀要加进去
 			// add prefix of new node
 			for (idx_t i = 0; i < next_node->prefix.Size(); i++) {
 				cur_key.Push(next_node->prefix[i]);
 			}
 			// next node found: push it
+            // 这个地方为什么是INVALID_INDEX
 			nodes.push(IteratorEntry(next_node, DConstants::INVALID_INDEX));
 		} else {
 			// no node found: move up the tree and Pop prefix and key of current node
@@ -200,12 +211,16 @@ bool Iterator::LowerBound(Node *node, Key &key, bool inclusive) {
 		nodes.push(IteratorEntry(node, 0));
 		auto &top = nodes.top();
 		// reconstruct the prefix
+        // 推当前node的前缀进去
 		for (idx_t i = 0; i < top.node->prefix.Size(); i++) {
 			cur_key.Push(top.node->prefix[i]);
 		}
 		if (!equal) {
+            // 一直向左遍历到叶子节点?
 			while (node->type != NodeType::NLeaf) {
+                // 拿出node最小的位置
 				auto min_pos = node->GetMin();
+                // push最小位置的key到cur_key中
 				PushKey(node, min_pos);
 				nodes.push(IteratorEntry(node, min_pos));
 				node = node->GetChild(*art, min_pos);
@@ -252,10 +267,16 @@ bool Iterator::LowerBound(Node *node, Key &key, bool inclusive) {
 			}
 			return false;
 		}
+        // 当前是内部节点
+        // 以下代码很奇怪
+        // 这里好像流程不会走过来？是bug？
 		uint32_t mismatch_pos = node->prefix.KeyMismatchPosition(key, depth);
+        // 前缀不匹配
 		if (mismatch_pos != node->prefix.Size()) {
+            // 并且前缀小于我们的key
 			if (node->prefix[mismatch_pos] < key[depth + mismatch_pos]) {
 				// Less
+                // 直接弹nodes？不弹cur_key?
 				nodes.pop();
 				return Next();
 			} else {
@@ -266,8 +287,9 @@ bool Iterator::LowerBound(Node *node, Key &key, bool inclusive) {
 		}
 		// prefix matches, search inside the child for the key
 		depth += node->prefix.Size();
-
+        // 找到下一个大于等于当前key的节点
 		top.pos = node->GetChildGreaterEqual(key[depth], equal);
+        // 为什么要找最小叶子?
 		if (top.pos == DConstants::INVALID_INDEX) {
 			// Find min leaf
 			top.pos = node->GetMin();

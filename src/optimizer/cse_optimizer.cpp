@@ -59,6 +59,7 @@ void CommonSubExpressionOptimizer::CountExpressions(Expression &expr, CSEReplace
 	default:
 		break;
 	}
+    // 聚合函数表达式不能给projection是合理的
 	if (expr.expression_class != ExpressionClass::BOUND_AGGREGATE && !expr.HasSideEffects()) {
 		// we can't move aggregates to a projection, so we only consider the children of the aggregate
 		auto node = state.expression_count.find(&expr);

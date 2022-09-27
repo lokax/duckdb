@@ -322,7 +322,7 @@ void JoinHashTable::InsertHashes(Vector &hashes, idx_t count, data_ptr_t key_loc
 		InsertHashesLoop<false>(pointers, indices, count, key_locations, pointer_offset);
 	}
 }
-
+// 这里只是简单分配和初始化一下而已
 void JoinHashTable::InitializePointerTable() {
 	idx_t count = external ? MaxValue<idx_t>(tuples_per_round, Count()) : Count();
 	idx_t capacity = PointerTableCapacity(count);
@@ -385,6 +385,7 @@ unique_ptr<ScanStructure> JoinHashTable::InitializeScanStructure(DataChunk &keys
 	// set up the scan structure
 	auto ss = make_unique<ScanStructure>(*this); // 创建ScanState
 
+    // 创建found match
 	if (join_type != JoinType::INNER) {
 		ss->found_match = unique_ptr<bool[]>(new bool[STANDARD_VECTOR_SIZE]);
 		memset(ss->found_match.get(), 0, sizeof(bool) * STANDARD_VECTOR_SIZE);
@@ -394,7 +395,7 @@ unique_ptr<ScanStructure> JoinHashTable::InitializeScanStructure(DataChunk &keys
 	ss->count = PrepareKeys(keys, ss->key_data, current_sel, ss->sel_vector, false);
 	return ss;
 }
-
+// 预先计算的哈希值？
 unique_ptr<ScanStructure> JoinHashTable::Probe(DataChunk &keys, Vector *precomputed_hashes) {
 	const SelectionVector *current_sel;
 	auto ss = InitializeScanStructure(keys, current_sel);
@@ -966,6 +967,7 @@ void JoinHashTable::SwizzleBlocks() {
 				heap_block_remaining -= next;
 			}
 
+            // 这东西是不会一直pinned住的
 			// Finally, we allocate a new heap block and copy data to it
 			swizzled_string_heap->blocks.emplace_back(
 			    make_unique<RowDataBlock>(buffer_manager, MaxValue<idx_t>(total_size, (idx_t)Storage::BLOCK_SIZE), 1));
@@ -982,6 +984,7 @@ void JoinHashTable::SwizzleBlocks() {
 	swizzled_block_collection->Merge(*block_collection);
 	D_ASSERT(swizzled_block_collection->blocks.size() == swizzled_string_heap->blocks.size());
 
+    // 清除string_heap
 	// Update counts and cleanup
 	swizzled_string_heap->count = string_heap->count;
 	string_heap->Clear();
@@ -1161,6 +1164,7 @@ unique_ptr<ScanStructure> JoinHashTable::ProbeAndSpill(DataChunk &keys, DataChun
                                                        DataChunk &spill_chunk) {
 	// hash all the keys
 	Vector hashes(LogicalType::HASH);
+    // 计算哈希值
 	Hash(keys, *FlatVector::IncrementalSelectionVector(), keys.size(), hashes);
 
 	// find out which keys we can match with the current pinned partitions
@@ -1172,12 +1176,16 @@ unique_ptr<ScanStructure> JoinHashTable::ProbeAndSpill(DataChunk &keys, DataChun
 	                                            radix_bits, partition_end, &true_sel, &false_sel);
 	auto false_count = keys.size() - true_count;
 
+    // 这里同时保存了哈希值
 	// slice the stuff we CAN'T probe right now and append to spill collection
 	CreateSpillChunk(spill_chunk, keys, payload, hashes);
+    // 做切片
 	spill_chunk.Slice(false_sel, false_count);
 	spill_chunk.Verify();
+    // 添加到splii chunk里面去
 	spill_collection.Append(spill_append_state, spill_chunk);
 
+    // 切片成true的情况
 	// slice the stuff we CAN probe right now
 	hashes.Slice(true_sel, true_count);
 	keys.Slice(true_sel, true_count);

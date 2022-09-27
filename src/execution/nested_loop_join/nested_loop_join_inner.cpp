@@ -2,7 +2,7 @@
 #include "duckdb/execution/nested_loop_join.hpp"
 
 namespace duckdb {
-
+// 包装器
 template <class OP>
 struct ComparisonOperationWrapper {
 	template <class T>
@@ -50,6 +50,7 @@ struct InitialNestedLoopJoin {
 	}
 };
 
+// 事后再检查多余的条件
 struct RefineNestedLoopJoin {
 	template <class T, class OP>
 	static idx_t Operation(Vector &left, Vector &right, idx_t left_size, idx_t right_size, idx_t &lpos, idx_t &rpos,

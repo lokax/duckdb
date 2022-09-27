@@ -16,6 +16,7 @@ PhysicalPerfectHashAggregate::PhysicalPerfectHashAggregate(ClientContext &contex
     : PhysicalOperator(PhysicalOperatorType::PERFECT_HASH_GROUP_BY, move(types_p), estimated_cardinality),
       groups(move(groups_p)), aggregates(move(aggregates_p)), required_bits(move(required_bits_p)) {
 	D_ASSERT(groups.size() == group_stats.size());
+    // 每个分组的最小值
 	group_minima.reserve(group_stats.size());
 	for (auto &stats : group_stats) {
 		D_ASSERT(stats);
@@ -23,6 +24,7 @@ PhysicalPerfectHashAggregate::PhysicalPerfectHashAggregate(ClientContext &contex
 		D_ASSERT(!nstats.min.IsNull());
 		group_minima.push_back(move(nstats.min));
 	}
+    // 分组表达式的类型
 	for (auto &expr : groups) {
 		group_types.push_back(expr->return_type);
 	}
@@ -34,9 +36,10 @@ PhysicalPerfectHashAggregate::PhysicalPerfectHashAggregate(ClientContext &contex
 		D_ASSERT(expr->IsAggregate());
 		auto &aggr = (BoundAggregateExpression &)*expr;
 		bindings.push_back(&aggr);
-
+        // 聚合必须没有disinct
 		D_ASSERT(!aggr.distinct);
 		D_ASSERT(aggr.function.combine);
+        // payload type包括孩子表达式那堆东西
 		for (auto &child : aggr.children) {
 			payload_types.push_back(child->return_type);
 		}
@@ -44,9 +47,11 @@ PhysicalPerfectHashAggregate::PhysicalPerfectHashAggregate(ClientContext &contex
 			payload_types_filters.push_back(aggr.filter->return_type);
 		}
 	}
+    // filter涉及的列放到payload type后面的位置
 	for (const auto &pay_filters : payload_types_filters) {
 		payload_types.push_back(pay_filters);
 	}
+    // 创建聚合对象
 	aggregate_objects = AggregateObject::CreateAggregateObjects(bindings);
 
 	// filter_indexes must be pre-built, not lazily instantiated in parallel...
@@ -125,11 +130,13 @@ SinkResultType PhysicalPerfectHashAggregate::Sink(ExecutionContext &context, Glo
 		auto &group = groups[group_idx];
 		D_ASSERT(group->type == ExpressionType::BOUND_REF);
 		auto &bound_ref_expr = (BoundReferenceExpression &)*group;
+        // 直接引用
 		group_chunk.data[group_idx].Reference(input.data[bound_ref_expr.index]);
 	}
 	idx_t aggregate_input_idx = 0;
 	for (auto &aggregate : aggregates) {
 		auto &aggr = (BoundAggregateExpression &)*aggregate;
+        // 直接引用每一个孩子
 		for (auto &child_expr : aggr.children) {
 			D_ASSERT(child_expr->type == ExpressionType::BOUND_REF);
 			auto &bound_ref_expr = (BoundReferenceExpression &)*child_expr;
@@ -138,6 +145,8 @@ SinkResultType PhysicalPerfectHashAggregate::Sink(ExecutionContext &context, Glo
 	}
 	for (auto &aggregate : aggregates) {
 		auto &aggr = (BoundAggregateExpression &)*aggregate;
+        // 不会有disinct
+        // 所以这里只处理filter
 		if (aggr.filter) {
 			auto it = filter_indexes.find(aggr.filter.get());
 			D_ASSERT(it != filter_indexes.end());

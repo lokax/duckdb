@@ -49,11 +49,13 @@ bool Expression::HasSideEffects() const {
 }
 
 bool Expression::PropagatesNullValues() const {
+    // 这些表达式都不会产生NULL值
 	if (type == ExpressionType::OPERATOR_IS_NULL || type == ExpressionType::OPERATOR_IS_NOT_NULL ||
 	    type == ExpressionType::COMPARE_NOT_DISTINCT_FROM || type == ExpressionType::COMPARE_DISTINCT_FROM ||
 	    type == ExpressionType::CONJUNCTION_OR || type == ExpressionType::CONJUNCTION_AND) {
 		return false;
 	}
+    // 继续枚举孩子
 	bool propagate_null_values = true;
 	ExpressionIterator::EnumerateChildren(*this, [&](const Expression &child) {
 		if (!child.PropagatesNullValues()) {

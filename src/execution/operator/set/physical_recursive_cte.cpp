@@ -166,6 +166,7 @@ void PhysicalRecursiveCTE::ExecuteRecursivePipelines(ExecutionContext &context) 
 void PhysicalRecursiveCTE::BuildPipelines(Executor &executor, Pipeline &current, PipelineBuildState &state) {
 	op_state.reset();
 	sink_state.reset();
+	pipelines.clear();
 
 	// recursive CTE
 	state.SetPipelineSource(current, this); // 设置当前流水线的source op为当前这个op

@@ -14,6 +14,7 @@ ART::ART(const vector<column_t> &column_ids, const vector<unique_ptr<Expression>
          IndexConstraintType constraint_type, DatabaseInstance &db, idx_t block_id, idx_t block_offset)
     : Index(IndexType::ART, column_ids, unbound_expressions, constraint_type), db(db) {
 	if (block_id != DConstants::INVALID_INDEX) {
+        // block id不算无效的，说明不是新树，反序列一下根节点?
 		tree = Node::Deserialize(*this, block_id, block_offset);
 	} else {
 		tree = nullptr;
@@ -35,6 +36,7 @@ ART::ART(const vector<column_t> &column_ids, const vector<unique_ptr<Expression>
 		case PhysicalType::VARCHAR:
 			break;
 		default:
+            // 不支持的数据类型
 			throw InvalidTypeException(logical_types[i], "Invalid type for index");
 		}
 	}
@@ -78,8 +80,10 @@ static void TemplatedGenerateKeys(Vector &input, idx_t count, vector<unique_ptr<
 	for (idx_t i = 0; i < count; i++) {
 		auto idx = idata.sel->get_index(i);
 		if (idata.validity.RowIsValid(idx)) {
+            // 创建Key
 			keys.push_back(Key::CreateKey<T>(input_data[idx]));
 		} else {
+            // NULL值的话插入nullptr
 			keys.push_back(nullptr);
 		}
 	}
@@ -97,6 +101,7 @@ static void ConcatenateKeys(Vector &input, idx_t count, vector<unique_ptr<Key>> 
 			// either this column is NULL, or the previous column is NULL!
 			keys[i] = nullptr;
 		} else {
+            // 感觉这个算法不够高效
 			// concatenate the keys
 			auto old_key = move(keys[i]);
 			auto new_key = Key::CreateKey<T>(input_data[idx]);
@@ -110,6 +115,7 @@ static void ConcatenateKeys(Vector &input, idx_t count, vector<unique_ptr<Key>> 
 }
 
 void ART::GenerateKeys(DataChunk &input, vector<unique_ptr<Key>> &keys) {
+    // 预留1024
 	keys.reserve(STANDARD_VECTOR_SIZE);
 	// generate keys for the first input column
 	switch (input.data[0].GetType().InternalType()) {
@@ -155,7 +161,7 @@ void ART::GenerateKeys(DataChunk &input, vector<unique_ptr<Key>> &keys) {
 	default:
 		throw InternalException("Invalid type for index");
 	}
-
+    // 遍历剩余的列
 	for (idx_t i = 1; i < input.ColumnCount(); i++) {
 		// for each of the remaining columns, concatenate
 		switch (input.data[i].GetType().InternalType()) {
@@ -205,10 +211,12 @@ void ART::GenerateKeys(DataChunk &input, vector<unique_ptr<Key>> &keys) {
 }
 
 bool ART::Insert(IndexLock &lock, DataChunk &input, Vector &row_ids) {
+    // ROW_TYPE是int64
 	D_ASSERT(row_ids.GetType().InternalType() == ROW_TYPE);
 	D_ASSERT(logical_types[0] == input.data[0].GetType());
 
 	// generate the keys for the given input
+    // 生成keys
 	vector<unique_ptr<Key>> keys;
 	GenerateKeys(input, keys);
 
@@ -218,17 +226,21 @@ bool ART::Insert(IndexLock &lock, DataChunk &input, Vector &row_ids) {
 	idx_t failed_index = DConstants::INVALID_INDEX;
 	for (idx_t i = 0; i < input.size(); i++) {
 		if (!keys[i]) {
+            // 任何一列存在NULL值
+            // 带NULL值的完全不出来吗？
 			continue;
 		}
 
 		row_t row_id = row_identifiers[i];
 		if (!Insert(tree, move(keys[i]), 0, row_id)) {
+            // 违背约束
 			// failed to insert because of constraint violation
 			failed_index = i;
 			break;
 		}
 	}
 	if (failed_index != DConstants::INVALID_INDEX) {
+        // 违背约束，移除之前的数据
 		// failed to insert because of constraint violation: remove previously inserted entries
 		// generate keys again
 		keys.clear();
@@ -253,8 +265,9 @@ bool ART::Append(IndexLock &lock, DataChunk &appended_data, Vector &row_identifi
 	expression_result.Initialize(Allocator::DefaultAllocator(), logical_types);
 
 	// first resolve the expressions for the index
+    // 计算表达式，获取要插入的数据
 	ExecuteExpressions(appended_data, expression_result);
-
+    // row_identifiers就是行的id
 	// now insert into the index
 	return Insert(lock, expression_result, row_identifiers);
 }
@@ -277,29 +290,33 @@ bool ART::InsertToLeaf(Leaf &leaf, row_t row_id) {
 		D_ASSERT(leaf.GetRowId(k) != row_id);
 	}
 #endif
+    // 唯一键或者是主键，并且叶子的个数不是0，则不能插入?
 	if (IsUnique() && leaf.count != 0) {
 		return false;
 	}
+    // 插入row id
 	leaf.Insert(row_id);
 	return true;
 }
 
 bool ART::Insert(Node *&node, unique_ptr<Key> value, unsigned depth, row_t row_id) {
+    // 拿出当前的key
 	Key &key = *value;
 	if (!node) {
 		// node is currently empty, create a leaf here with the key
 		node = new Leaf(*value, depth, row_id);
 		return true;
 	}
-
+    // 如果当前node是叶子
 	if (node->type == NodeType::NLeaf) {
 		// Replace leaf with Node4 and store both leaves in it
 		auto leaf = (Leaf *)node;
-
+        // 叶子节点的前缀
 		auto &leaf_prefix = leaf->prefix;
 		uint32_t new_prefix_length = 0;
 		// Leaf node is already there, update row_id vector
 		if (new_prefix_length == leaf->prefix.Size() && depth + leaf->prefix.Size() == key.len) {
+            // 插入到叶子节点
 			return InsertToLeaf(*leaf, row_id);
 		}
 		while (leaf_prefix[new_prefix_length] == key[depth + new_prefix_length]) {
@@ -309,23 +326,30 @@ bool ART::Insert(Node *&node, unique_ptr<Key> value, unsigned depth, row_t row_i
 				return InsertToLeaf(*leaf, row_id);
 			}
 		}
-
+        // 创建node4
 		Node *new_node = new Node4();
+        // 新前缀长度是和之前叶子节点前缀相等多少的长度
+        // 共同前缀
 		new_node->prefix = Prefix(key, depth, new_prefix_length);
 		auto key_byte = node->prefix.Reduce(new_prefix_length);
+        // 把当前node插入到node4中，成为孩子节点
 		Node4::Insert(new_node, key_byte, node);
+        // OK
 		Node *leaf_node = new Leaf(*value, depth + new_prefix_length + 1, row_id);
 		Node4::Insert(new_node, key[depth + new_prefix_length], leaf_node);
+        // 把node取代成new_node
 		node = new_node;
 		return true;
 	}
-
+    // 处理内部节点的前缀
 	// Handle prefix of inner node
 	if (node->prefix.Size()) {
+        // 找到前缀中第一个不匹配的位置
 		uint32_t mismatch_pos = node->prefix.KeyMismatchPosition(key, depth);
 		if (mismatch_pos != node->prefix.Size()) {
 			// Prefix differs, create new node
 			Node *new_node = new Node4();
+            // 创建新的前缀
 			new_node->prefix = Prefix(key, depth, mismatch_pos);
 			// Break up prefix
 			auto key_byte = node->prefix.Reduce(mismatch_pos);
@@ -341,10 +365,12 @@ bool ART::Insert(Node *&node, unique_ptr<Key> value, unsigned depth, row_t row_i
 
 	// Recurse
 	D_ASSERT(depth < key.len);
+    // 拿出孩子节点指针
 	idx_t pos = node->GetChildPos(key[depth]);
 	if (pos != DConstants::INVALID_INDEX) {
 		auto child = node->GetChild(*this, pos);
 		bool insertion_result = Insert(child, move(value), depth + 1, row_id);
+        // child可能被改变，所有这里取代一下
 		node->ReplaceChildPointer(pos, child);
 		return insertion_result;
 	}
@@ -360,9 +386,11 @@ void ART::Delete(IndexLock &state, DataChunk &input, Vector &row_ids) {
 	DataChunk expression;
 	expression.Initialize(Allocator::DefaultAllocator(), logical_types);
 
+    // 计算key chunk
 	// first resolve the expressions
 	ExecuteExpressions(input, expression);
 
+    // 生成key
 	// then generate the keys for the given input
 	vector<unique_ptr<Key>> keys;
 	GenerateKeys(expression, keys);
@@ -372,6 +400,7 @@ void ART::Delete(IndexLock &state, DataChunk &input, Vector &row_ids) {
 	auto row_identifiers = FlatVector::GetData<row_t>(row_ids);
 
 	for (idx_t i = 0; i < input.size(); i++) {
+        // NULL值不处理？
 		if (!keys[i]) {
 			continue;
 		}
@@ -389,6 +418,7 @@ void ART::Delete(IndexLock &state, DataChunk &input, Vector &row_ids) {
 }
 
 void ART::Erase(Node *&node, Key &key, unsigned depth, row_t row_id) {
+    // node是nullptr，什么都不用处理
 	if (!node) {
 		return;
 	}
@@ -396,7 +426,11 @@ void ART::Erase(Node *&node, Key &key, unsigned depth, row_t row_id) {
 	if (node->type == NodeType::NLeaf) {
 		// Make sure we have the right leaf
 		auto leaf = static_cast<Leaf *>(node);
+        // 在这里没有检查前缀？
+        // row id固定，key也是固定的，这里搜row id看起来没问题？
+        // 但是感觉不太好
 		leaf->Remove(row_id);
+        // 删除这个leaf，当leaf没有数据的时候
 		if (leaf->count == 0) {
 			delete node;
 			node = nullptr;
@@ -404,19 +438,21 @@ void ART::Erase(Node *&node, Key &key, unsigned depth, row_t row_id) {
 
 		return;
 	}
-
+    // 不算叶子节点，但是有前缀
 	// Handle prefix
 	if (node->prefix.Size()) {
+        // 有一个位置不匹配，说明这个数据不存在
 		if (node->prefix.KeyMismatchPosition(key, depth) != node->prefix.Size()) {
 			return;
 		}
 		depth += node->prefix.Size();
 	}
 	idx_t pos = node->GetChildPos(key[depth]);
+    // 找到孩子
 	if (pos != DConstants::INVALID_INDEX) {
 		auto child = node->GetChild(*this, pos);
 		D_ASSERT(child);
-
+        // 遇到叶子节点
 		if (child->type == NodeType::NLeaf) {
 			// Leaf found, remove entry
 			auto leaf = (Leaf *)child;
@@ -426,6 +462,7 @@ void ART::Erase(Node *&node, Key &key, unsigned depth, row_t row_id) {
 				Node::Erase(node, pos, *this);
 			}
 		} else {
+            // 递归并且取代
 			// Recurse
 			Erase(child, key, depth + 1, row_id);
 			node->ReplaceChildPointer(pos, child);
@@ -476,9 +513,12 @@ bool ART::SearchEqual(ARTIndexScanState *state, idx_t max_count, vector<row_t> &
 	if (!leaf) {
 		return true;
 	}
+    // 叶子节点的数量大于max_count，就返回false?
+    // 返回值怎么都这么奇怪?
 	if (leaf->count > max_count) {
 		return false;
 	}
+    // 收集row id
 	for (idx_t i = 0; i < leaf->count; i++) {
 		row_t row_id = leaf->GetRowId(i);
 		result_ids.push_back(row_id);
@@ -486,6 +526,7 @@ bool ART::SearchEqual(ARTIndexScanState *state, idx_t max_count, vector<row_t> &
 	return true;
 }
 
+// 只设置result size?
 void ART::SearchEqualJoinNoFetch(Value &equal_value, idx_t &result_size) {
 	//! We need to look for a leaf
 	auto key = CreateKey(*this, types[0], equal_value);
@@ -495,22 +536,26 @@ void ART::SearchEqualJoinNoFetch(Value &equal_value, idx_t &result_size) {
 	}
 	result_size = leaf->count;
 }
-
+// 这是乐观版本？难度不是悲观版本吗
 Node *ART::Lookup(Node *node, Key &key, unsigned depth) {
 	while (node) {
+        // 遇到叶子节点
 		if (node->type == NodeType::NLeaf) {
 			auto leaf = (Leaf *)node;
 			auto &leaf_prefix = leaf->prefix;
 			//! Check leaf
 			for (idx_t i = 0; i < leaf->prefix.Size(); i++) {
+                // 检查前缀，前缀不相等，直接没找到
 				if (leaf_prefix[i] != key[i + depth]) {
 					return nullptr;
 				}
 			}
 			return node;
 		}
+        // 不算叶子节点，但是存在前缀
 		if (node->prefix.Size()) {
 			for (idx_t pos = 0; pos < node->prefix.Size(); pos++) {
+                // 前缀没找到，直接返回
 				if (key[depth + pos] != node->prefix[pos]) {
 					return nullptr;
 				}
@@ -518,11 +563,14 @@ Node *ART::Lookup(Node *node, Key &key, unsigned depth) {
 			depth += node->prefix.Size();
 		}
 		idx_t pos = node->GetChildPos(key[depth]);
+        // 没找到孩子，直接返回
 		if (pos == DConstants::INVALID_INDEX) {
 			return nullptr;
 		}
+        // 拿出孩子，继续循环
 		node = node->GetChild(*this, pos);
 		D_ASSERT(node);
+        // 增加深度
 		depth++;
 	}
 	return nullptr;
@@ -555,11 +603,13 @@ bool ART::SearchGreater(ARTIndexScanState *state, bool inclusive, idx_t max_coun
 // Less Than
 //===--------------------------------------------------------------------===//
 bool ART::SearchLess(ARTIndexScanState *state, bool inclusive, idx_t max_count, vector<row_t> &result_ids) {
+    // 根节点都没有，直接返回
 	if (!tree) {
 		return true;
 	}
 
 	Iterator *it = &state->iterator;
+    // 创建上界
 	auto upper_bound = CreateKey(*this, types[0], state->values[0]);
 
 	if (!it->art) {

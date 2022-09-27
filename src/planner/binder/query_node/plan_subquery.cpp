@@ -172,6 +172,7 @@ static void CreateDelimJoinConditions(LogicalDelimJoin &delim_join, vector<Corre
 }
 
 static bool PerformDelimOnType(const LogicalType &type) {
+    // 列表不能Delim Join?
 	if (type.InternalType() == PhysicalType::LIST) {
 		return false;
 	}
@@ -204,6 +205,7 @@ static bool PerformDuplicateElimination(Binder &binder, vector<CorrelatedColumnI
 	auto type = LogicalType::BIGINT;
 	auto name = "delim_index";
 	CorrelatedColumnInfo info(binding, type, name, 0);
+    // 往头部的位置插入delim index?
 	correlated_columns.insert(correlated_columns.begin(), move(info));
 	return false;
 }
@@ -211,7 +213,8 @@ static bool PerformDuplicateElimination(Binder &binder, vector<CorrelatedColumnI
 static unique_ptr<Expression> PlanCorrelatedSubquery(Binder &binder, BoundSubqueryExpression &expr,
                                                      unique_ptr<LogicalOperator> &root,
                                                      unique_ptr<LogicalOperator> plan) {
-	auto &correlated_columns = expr.binder->correlated_columns;
+	// 子查询的binder
+    auto &correlated_columns = expr.binder->correlated_columns;
 	// FIXME: there should be a way of disabling decorrelation for ANY queries as well, but not for now...
 	bool perform_delim =
 	    expr.subquery_type == SubqueryType::ANY ? true : PerformDuplicateElimination(binder, correlated_columns);
@@ -328,7 +331,9 @@ public:
 	explicit RecursiveSubqueryPlanner(Binder &binder) : binder(binder) {
 	}
 	void VisitOperator(LogicalOperator &op) override {
+        // 如果有孩子
 		if (!op.children.empty()) {
+            // 为什么要移动出来？
 			root = move(op.children[0]);
 			D_ASSERT(root);
 			VisitOperatorExpressions(op);
@@ -340,6 +345,7 @@ public:
 		}
 	}
 
+    // 由当前的binder？
 	unique_ptr<Expression> VisitReplace(BoundSubqueryExpression &expr, unique_ptr<Expression> *expr_ptr) override {
 		return binder.PlanSubquery(expr, root);
 	}
@@ -353,7 +359,10 @@ unique_ptr<Expression> Binder::PlanSubquery(BoundSubqueryExpression &expr, uniqu
 	D_ASSERT(root);
 	// first we translate the QueryNode of the subquery into a logical plan
 	// note that we do not plan nested subqueries yet
+    // 这个binder什么都没有？
 	auto sub_binder = Binder::CreateBinder(context);
+    // 先不plan嵌套的子查询
+    // 不plan子查询
 	sub_binder->plan_subquery = false;
 	auto subquery_root = sub_binder->CreatePlan(*expr.subquery); // 通过subbinder创建subplan
 	D_ASSERT(subquery_root);
@@ -366,6 +375,7 @@ unique_ptr<Expression> Binder::PlanSubquery(BoundSubqueryExpression &expr, uniqu
 	} else {
 		result_expression = PlanCorrelatedSubquery(*this, expr, root, move(plan));
 	}
+    // 递归构建
 	// finally, we recursively plan the nested subqueries (if there are any)
 	if (sub_binder->has_unplanned_subqueries) {
 		RecursiveSubqueryPlanner plan(*this);

@@ -116,6 +116,7 @@ void RowDataCollection::Merge(RowDataCollection &other) {
 	}
 	RowDataCollection temp(buffer_manager, Storage::BLOCK_SIZE, 1);
 	{
+        // 为什么这里要拿别人的锁?
 		//	One lock at a time to avoid deadlocks
 		lock_guard<mutex> read_lock(other.rdc_lock);
 		temp.count = other.count;

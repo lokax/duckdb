@@ -96,11 +96,12 @@ static bool CanUsePerfectHashAggregate(ClientContext &context, LogicalAggregate 
 		if (range >= NumericLimits<int32_t>::Maximum()) {
 			return false;
 		}
-		range += 2;
+		range += 2; // 为什么
 		// figure out how many bits we need
 		idx_t required_bits = RequiredBitsForValue(range);
 		bits_per_group.push_back(required_bits);
 		perfect_hash_bits += required_bits;
+        // 默认4096个槽位是最大
 		// check if we have exceeded the bits for the hash
 		if (perfect_hash_bits > ClientConfig::GetConfig(context).perfect_ht_threshold) {
 			// too many bits for perfect hash
@@ -109,6 +110,7 @@ static bool CanUsePerfectHashAggregate(ClientContext &context, LogicalAggregate 
 	}
 	for (auto &expression : op.expressions) {
 		auto &aggregate = (BoundAggregateExpression &)*expression;
+        // distinct不支持，不能combine也不行？为什么
 		if (aggregate.distinct || !aggregate.function.combine) {
 			// distinct aggregates are not supported in perfect hash aggregates
 			return false;

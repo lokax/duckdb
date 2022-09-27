@@ -23,6 +23,7 @@ public:
 	explicit Key(idx_t len);
 
 	idx_t len;
+    // 数据块
 	unique_ptr<data_t[]> data;
 
 public:
@@ -52,6 +53,8 @@ public:
 private:
 	template <class T>
 	static inline unique_ptr<data_t[]> CreateData(T value) {
+        // 分配空间
+        // 进行radix编码
 		auto data = unique_ptr<data_t[]>(new data_t[sizeof(value)]);
 		Radix::EncodeData<T>(data.get(), value);
 		return data;

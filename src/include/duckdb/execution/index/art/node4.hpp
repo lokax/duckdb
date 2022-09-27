@@ -15,8 +15,10 @@ namespace duckdb {
 class Node4 : public Node {
 public:
 	Node4();
+    // 4个key
 	uint8_t key[4];
 	// Pointers to the child nodes
+    // 4个混写指针
 	SwizzleablePointer children[4];
 
 public:

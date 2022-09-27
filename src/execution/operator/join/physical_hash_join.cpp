@@ -435,9 +435,13 @@ unique_ptr<OperatorState> PhysicalHashJoin::GetOperatorState(ExecutionContext &c
 			state->probe_executor.AddExpression(*cond.left);
 		}
 	}
+    // 如果是外部hash join
 	if (sink.external) {
+        // 使用探测类型初始化spill chunk
 		state->spill_chunk.Initialize(allocator, sink.probe_types);
+        // 加锁
 		lock_guard<mutex> local_ht_lock(sink.lock);
+        // 创建spill collections
 		sink.spill_collections.push_back(
 		    make_unique<ColumnDataCollection>(BufferManager::GetBufferManager(context.client), sink.probe_types));
 		state->spill_collection = sink.spill_collections.back().get();
@@ -617,10 +621,12 @@ HashJoinGlobalSourceState::HashJoinGlobalSourceState(const PhysicalHashJoin &op,
 }
 
 void HashJoinGlobalSourceState::Initialize(HashJoinGlobalSinkState &sink) {
+    // 初始化过，直接返回
 	if (initialized) {
 		return;
 	}
 	lock_guard<mutex> init_lock(lock);
+    // 加锁
 	if (initialized) {
 		// Have to check if anything changed since we got the lock
 		return;
@@ -635,6 +641,7 @@ void HashJoinGlobalSourceState::Initialize(HashJoinGlobalSinkState &sink) {
 }
 
 void HashJoinGlobalSourceState::PartitionProbeSide(HashJoinGlobalSinkState &sink) {
+    // 如果探测边已经分区了，直接返回
 	if (probe_side_partitioned) {
 		return;
 	}
@@ -648,20 +655,24 @@ void HashJoinGlobalSourceState::PartitionProbeSide(HashJoinGlobalSinkState &sink
 		if (!probe_collection) {
 			probe_collection = move(spill_collection);
 		} else {
+            // 合并这些collection
 			probe_collection->Combine(*spill_collection);
 		}
 	}
+    // 清除spill collection
 	sink.spill_collections.clear();
-
+    // chunk的数量
 	probe_chunk_count = probe_collection->ChunkCount();
-
+    // 设置分区完成
 	probe_side_partitioned = true;
 }
 
+// 预构建
 void HashJoinGlobalSourceState::PrepareBuild(HashJoinGlobalSinkState &sink) {
 	D_ASSERT(global_stage != HashJoinSourceStage::BUILD);
 	auto &ht = *sink.hash_table;
 
+    // 获取下一个分区
 	// Put the next partitions in the block collection
 	if (!ht.PrepareExternalFinalize()) {
 		global_stage = HashJoinSourceStage::DONE;
@@ -670,10 +681,12 @@ void HashJoinGlobalSourceState::PrepareBuild(HashJoinGlobalSinkState &sink) {
 
 	auto &block_collection = ht.GetBlockCollection();
 	build_block_idx = 0;
+    // block的数量
 	build_block_count = block_collection.blocks.size();
 	build_block_done = 0;
+    // 初始化指针表
 	ht.InitializePointerTable();
-
+    // 状态转换为构建状态
 	global_stage = HashJoinSourceStage::BUILD;
 }
 
@@ -691,14 +704,17 @@ void HashJoinGlobalSourceState::PrepareProbe(HashJoinGlobalSinkState &sink) {
 
 bool HashJoinGlobalSourceState::AssignTask(HashJoinGlobalSinkState &sink, HashJoinLocalSourceState &lstate) {
 	D_ASSERT(lstate.TaskFinished());
-
+    // 加锁
 	lock_guard<mutex> guard(lock);
 	switch (global_stage.load()) {
 	case HashJoinSourceStage::BUILD:
+        // 分配构建任务
 		if (build_block_idx != build_block_count) {
 			lstate.local_stage = global_stage;
+            // 开始
 			lstate.build_block_idx_start = build_block_idx;
 			build_block_idx = MinValue<idx_t>(build_block_count, build_block_idx + build_blocks_per_thread);
+            // 末尾
 			lstate.build_block_idx_end = build_block_idx;
 			return true;
 		}
@@ -776,12 +792,14 @@ bool HashJoinLocalSourceState::TaskFinished() {
 void HashJoinLocalSourceState::ExternalBuild(HashJoinGlobalSinkState &sink, HashJoinGlobalSourceState &gstate) {
 	D_ASSERT(local_stage == HashJoinSourceStage::BUILD);
 
+    // 构建哈希表
 	auto &ht = *sink.hash_table;
 	ht.Finalize(build_block_idx_start, build_block_idx_end, true);
-
+    // 加锁
 	lock_guard<mutex> guard(gstate.lock);
 	gstate.build_block_done += build_block_idx_end - build_block_idx_start;
 	if (gstate.build_block_done == gstate.build_block_count) {
+        // 构建完成，预探测
 		ht.finalized = true;
 		gstate.PrepareProbe(sink);
 	}
@@ -796,11 +814,14 @@ void HashJoinLocalSourceState::ExternalProbe(HashJoinGlobalSinkState &sink, Hash
 		scan_structure->Next(join_keys, payload, chunk);
 		if (chunk.size() == 0) {
 			scan_structure = nullptr;
+            // 加锁
 			lock_guard<mutex> lock(gstate.lock);
 			if (++gstate.probe_chunk_done == gstate.probe_chunk_count) {
 				if (IsRightOuterJoin(gstate.join_type)) {
 					gstate.global_stage = HashJoinSourceStage::SCAN_HT;
 				} else {
+                    // 构建下一块
+                    // 这就是一个状态机阿
 					gstate.PrepareBuild(sink);
 				}
 			}
@@ -815,6 +836,7 @@ void HashJoinLocalSourceState::ExternalProbe(HashJoinGlobalSinkState &sink, Hash
 	// Get the probe chunk columns/hashes
 	join_keys.ReferenceColumns(probe_chunk, join_key_indices);
 	payload.ReferenceColumns(probe_chunk, payload_indices);
+    // 存了哈希值在这里面
 	auto precomputed_hashes = &probe_chunk.data.back();
 
 	// Perform the probe
@@ -870,8 +892,10 @@ void PhysicalHashJoin::GetData(ExecutionContext &context, DataChunk &chunk, Glob
 	}
 	D_ASSERT(can_go_external);
 
+    // 初始化阶段
 	if (gstate.global_stage == HashJoinSourceStage::INIT) {
 		gstate.Initialize(sink);
+        // 对探测边进行分区
 		gstate.PartitionProbeSide(sink);
 
 		lock_guard<mutex> lock(gstate.lock);
@@ -879,6 +903,7 @@ void PhysicalHashJoin::GetData(ExecutionContext &context, DataChunk &chunk, Glob
 			if (IsRightOuterJoin(join_type)) {
 				gstate.global_stage = HashJoinSourceStage::SCAN_HT;
 			} else {
+                // 预构建
 				gstate.PrepareBuild(sink);
 			}
 		}

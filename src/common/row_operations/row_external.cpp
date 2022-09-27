@@ -79,6 +79,7 @@ void RowOperations::CopyHeapAndSwizzle(const RowLayout &layout, data_ptr_t row_p
 
 		// Copy and swizzle
 		memcpy(heap_ptr, source_heap_ptr, size);
+        // 这里是swizzle
 		Store<idx_t>(heap_ptr - heap_base_ptr, row_ptr + heap_offset);
 
 		// Increment for next iteration
@@ -99,6 +100,9 @@ void RowOperations::UnswizzleHeapPointer(const RowLayout &layout, const data_ptr
 
 static inline void VerifyUnswizzledString(const RowLayout &layout, const idx_t &col_idx, const data_ptr_t &row_ptr) {
 #ifdef DEBUG
+	if (layout.GetTypes()[col_idx] == LogicalTypeId::BLOB) {
+		return;
+	}
 	idx_t entry_idx;
 	idx_t idx_in_entry;
 	ValidityBytes::GetEntryIndex(col_idx, entry_idx, idx_in_entry);

@@ -100,7 +100,7 @@ static void InitPartitions(BufferManager &buffer_manager, vector<unique_ptr<RowD
                            RowDataBlock *partition_blocks[], vector<BufferHandle> &partition_handles,
                            data_ptr_t partition_ptrs[], idx_t block_capacity, idx_t row_width) {
 	using CONSTANTS = RadixPartitioningConstants<radix_bits>;
-
+    // 预留N个分区的空间
 	partition_collections.reserve(CONSTANTS::NUM_PARTITIONS);
 	partition_handles.reserve(CONSTANTS::NUM_PARTITIONS);
 	for (idx_t i = 0; i < CONSTANTS::NUM_PARTITIONS; i++) {
@@ -157,6 +157,7 @@ struct PartitionFunctor {
 
 		auto &data_blocks = block_collection.blocks;
 		auto &heap_blocks = string_heap.blocks;
+        // 遍历每一块
 		for (idx_t block_idx = 0; block_idx < data_blocks.size(); block_idx++) {
 			RowDataBlock *data_block;
 			BufferHandle data_handle;
@@ -173,6 +174,7 @@ struct PartitionFunctor {
 
 			idx_t remaining = data_block->count;
 			while (remaining != 0) {
+                // 能1024就1024
 				const auto next = MinValue<idx_t>(remaining, STANDARD_VECTOR_SIZE);
 
 				if (has_heap) {
@@ -194,6 +196,7 @@ struct PartitionFunctor {
 						             CONSTANTS::TMP_BUF_SIZE);
 						D_ASSERT(block_count <= block_capacity);
 						if (block_count + CONSTANTS::TMP_BUF_SIZE > block_capacity) {
+                            // 设置block count
 							// The block can't fit the next flush of the temp buf
 							partition_data_blocks[bin]->count = block_count;
 							if (has_heap) {
@@ -202,6 +205,7 @@ struct PartitionFunctor {
 								              *partition_data_blocks[bin], partition_data_ptrs[bin],
 								              *partition_heap_blocks[bin], partition_heap_handles[bin]);
 							}
+                            // 创建新块
 							// Now we can create new blocks for this partition
 							CreateNewBlock(buffer_manager, has_heap, partition_block_collections, partition_data_blocks,
 							               partition_data_handles, partition_data_ptrs, partition_string_heaps,
@@ -234,6 +238,7 @@ struct PartitionFunctor {
 				}
 			}
 
+            // 释放内存
 			// Delete references to the input block we just finished processing to free up memory
 			data_blocks[block_idx] = nullptr;
 			if (has_heap) {
@@ -331,12 +336,16 @@ struct PartitionFunctor {
 		if (count == 0) {
 			return;
 		}
+        // 行的宽度
 		const auto row_width = layout.GetRowWidth();
+        // 因为data_ptr之前移动过，所以这里计算回去到base_row_ptr
 		const auto base_row_ptr = data_ptr - count * row_width;
 
 		// Compute size of remaining heap rows
 		idx_t size = 0;
+        // 找出堆的offset
 		auto row_ptr = base_row_ptr + layout.GetHeapOffset();
+        // 堆上一开始存的是size? 是的，存的是entry_size
 		for (idx_t i = 0; i < count; i++) {
 			size += Load<uint32_t>(Load<data_ptr_t>(row_ptr));
 			row_ptr += row_width;
@@ -345,6 +354,7 @@ struct PartitionFunctor {
 		// Resize block if it doesn't fit
 		auto required_size = heap_block.byte_offset + size;
 		if (required_size > heap_block.capacity) {
+            // 如果空间不够，重新进行分配
 			buffer_manager.ReAllocate(heap_block.block, required_size);
 			heap_block.capacity = required_size;
 		}

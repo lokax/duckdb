@@ -22,7 +22,7 @@ enum class ColumnDataAllocatorType : uint8_t {
 	//! This causes the column data collection to behave similar to the old chunk collection
 	IN_MEMORY_ALLOCATOR
 };
-
+// 扫描属性是什么,明白了
 enum class ColumnDataScanProperties : uint8_t {
 	INVALID,
 	//! Allow zero copy scans - this introduces a dependency on the resulting vector on the scan state of the column
@@ -34,6 +34,7 @@ enum class ColumnDataScanProperties : uint8_t {
 };
 
 struct ChunkManagementState {
+    // 保存所有权
 	unordered_map<idx_t, BufferHandle> handles;
 	ColumnDataScanProperties properties = ColumnDataScanProperties::INVALID;
 };

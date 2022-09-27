@@ -6,19 +6,22 @@
 namespace duckdb {
 
 Node4::Node4() : Node(NodeType::N4) {
+    // 初始化
 	memset(key, 0, sizeof(key));
 }
-
+// 取代孩子指针
 void Node4::ReplaceChildPointer(idx_t pos, Node *node) {
 	children[pos] = node;
 }
-
+// 突然有个问题就是如果key本身是0，应该怎么处理呢
 idx_t Node4::GetChildPos(uint8_t k) {
+    // 直接暴力搜索
 	for (idx_t pos = 0; pos < count; pos++) {
 		if (key[pos] == k) {
 			return pos;
 		}
 	}
+    // 返回无效，花里胡哨?
 	return Node::GetChildPos(k);
 }
 
@@ -33,21 +36,24 @@ idx_t Node4::GetChildGreaterEqual(uint8_t k, bool &equal) {
 			return pos;
 		}
 	}
+    // 抛异常，这是bug
 	return Node::GetChildGreaterEqual(k, equal);
 }
 
+// 获取最小值的位置？一定是0?
 idx_t Node4::GetMin() {
 	return 0;
 }
-
+// 移动到下一个pos?
 idx_t Node4::GetNextPos(idx_t pos) {
 	if (pos == DConstants::INVALID_INDEX) {
+        // 返回第一个有效位置
 		return 0;
 	}
 	pos++;
 	return pos < count ? pos : DConstants::INVALID_INDEX;
 }
-
+// 获取孩子指针
 Node *Node4::GetChild(ART &art, idx_t pos) {
 	D_ASSERT(pos < count);
 	return children[pos].Unswizzle(art);
@@ -57,13 +63,18 @@ void Node4::Insert(Node *&node, uint8_t key_byte, Node *new_child) {
 	Node4 *n = (Node4 *)node;
 
 	// Insert leaf into inner node
+    // 如果有空间剩余
 	if (node->count < 4) {
 		// Insert element
 		idx_t pos = 0;
+        // 找到大于等于key_byte的第一个位置
 		while ((pos < node->count) && (n->key[pos] < key_byte)) {
 			pos++;
 		}
+        // 不等于0
 		if (n->children[pos] != 0) {
+            // 相等的情况也移动？会不会出现插入相同值？
+            // 把所有数据往后移动
 			for (idx_t i = n->count; i > pos; i--) {
 				n->key[i] = n->key[i - 1];
 				n->children[i] = n->children[i - 1];
@@ -74,12 +85,14 @@ void Node4::Insert(Node *&node, uint8_t key_byte, Node *new_child) {
 		n->count++;
 	} else {
 		// Grow to Node16
+        // 扩容成Node16
 		auto new_node = new Node16();
 		new_node->count = 4;
 		new_node->prefix = move(node->prefix);
 		for (idx_t i = 0; i < 4; i++) {
 			new_node->key[i] = n->key[i];
 			new_node->children[i] = n->children[i];
+            // 设置成nullptr，应该是避免被析构函数delete之类的
 			n->children[i] = nullptr;
 		}
 		// Delete old node and replace it with new node
@@ -93,13 +106,16 @@ void Node4::Erase(Node *&node, int pos, ART &art) {
 	Node4 *n = (Node4 *)node;
 	D_ASSERT(pos < n->count);
 	// erase the child and decrease the count
+    // 重置
 	n->children[pos].Reset();
 	n->count--;
 	// potentially move any children backwards
+    // 把数据往前移动
 	for (; pos < n->count; pos++) {
 		n->key[pos] = n->key[pos + 1];
 		n->children[pos] = n->children[pos + 1];
 	}
+    // 有多余的清除
 	// set any remaining nodes as nullptr
 	for (; pos < 4; pos++) {
 		n->children[pos] = nullptr;
@@ -107,11 +123,14 @@ void Node4::Erase(Node *&node, int pos, ART &art) {
 
 	// This is a one way node
 	if (n->count == 1) {
+        // 获取第一个孩子的指针
 		auto child_ref = n->GetChild(art, 0);
 		// concatenate prefixes
+        // 合并前缀,我怎么觉得像后缀
 		child_ref->prefix.Concatenate(n->key[0], node->prefix);
 		n->children[0] = nullptr;
 		delete node;
+        // 把当前的node替代成孩子
 		node = child_ref;
 	}
 }

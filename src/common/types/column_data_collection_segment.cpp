@@ -17,17 +17,23 @@ validity_t *ColumnDataCollectionSegment::GetValidityPointer(data_ptr_t base_ptr,
 
 VectorDataIndex ColumnDataCollectionSegment::AllocateVectorInternal(const LogicalType &type, ChunkMetaData &chunk_meta,
                                                                     ChunkManagementState *chunk_state) {
-	VectorMetaData meta_data;
+	// 向量元数据
+    VectorMetaData meta_data;
+    // 数据量是0
 	meta_data.count = 0;
-
+    // 拿出内部类型
 	auto internal_type = type.InternalType();
+    // GetTypeIdSize本身就已经能够正确处理Struct的情况了阿？
 	auto type_size = internal_type == PhysicalType::STRUCT ? 0 : GetTypeIdSize(internal_type);
+    // 分配内存
 	allocator->AllocateData(GetDataSize(type_size) + ValidityMask::STANDARD_MASK_SIZE, meta_data.block_id,
 	                        meta_data.offset, chunk_state);
 	if (allocator->GetType() == ColumnDataAllocatorType::BUFFER_MANAGER_ALLOCATOR) {
+        // 表明这个block id是我们需要的
 		chunk_meta.block_ids.insert(meta_data.block_id);
 	}
 
+    // VectorDataIndex是vector_data数组的索引
 	auto index = vector_data.size();
 	vector_data.push_back(meta_data);
 	return VectorDataIndex(index);
@@ -37,10 +43,13 @@ VectorDataIndex ColumnDataCollectionSegment::AllocateVector(const LogicalType &t
                                                             ChunkManagementState *chunk_state,
                                                             VectorDataIndex prev_index) {
 	auto index = AllocateVectorInternal(type, chunk_meta, chunk_state);
+    // 串成链表？
 	if (prev_index.IsValid()) {
 		GetVectorData(prev_index).next_data = index;
 	}
+    // 如果类型是结构体
 	if (type.InternalType() == PhysicalType::STRUCT) {
+        // 拿出child types
 		// initialize the struct children
 		auto &child_types = StructType::GetChildTypes(type);
 		auto base_child_index = ReserveChildren(child_types.size());
@@ -52,6 +61,7 @@ VectorDataIndex ColumnDataCollectionSegment::AllocateVector(const LogicalType &t
 			auto child_index = AllocateVector(child_types[child_idx].second, chunk_meta, chunk_state, prev_child_index);
 			SetChildIndex(base_child_index, child_idx, child_index);
 		}
+        // 明白了
 		GetVectorData(index).child_index = base_child_index;
 	}
 	return index;
@@ -66,6 +76,7 @@ VectorDataIndex ColumnDataCollectionSegment::AllocateVector(const LogicalType &t
 void ColumnDataCollectionSegment::AllocateNewChunk() {
 	ChunkMetaData meta_data;
 	meta_data.count = 0;
+    // 保存每一列的vecor index
 	meta_data.vector_data.reserve(types.size());
 	for (idx_t i = 0; i < types.size(); i++) {
 		auto vector_idx = AllocateVector(types[i], meta_data);
@@ -74,6 +85,7 @@ void ColumnDataCollectionSegment::AllocateNewChunk() {
 	chunk_data.push_back(move(meta_data));
 }
 
+// 初始化chunk state
 void ColumnDataCollectionSegment::InitializeChunkState(idx_t chunk_index, ChunkManagementState &state) {
 	auto &chunk = chunk_data[chunk_index];
 	allocator->InitializeChunkState(state, chunk);
@@ -114,7 +126,9 @@ idx_t ColumnDataCollectionSegment::ReadVectorInternal(ChunkManagementState &stat
 	auto &vdata = GetVectorData(vector_index);
 
 	auto base_ptr = allocator->GetDataPointer(state, vdata.block_id, vdata.offset);
+    // 最尾巴的位置上存的是有效性掩码
 	auto validity_data = GetValidityPointer(base_ptr, type_size);
+    // 最后一块数据了，如果可以零拷贝的话，就直接引用
 	if (!vdata.next_data.IsValid() && state.properties != ColumnDataScanProperties::DISALLOW_ZERO_COPY) {
 		// no next data, we can do a zero-copy read of this vector
 		FlatVector::SetData(result, base_ptr);
@@ -127,11 +141,13 @@ idx_t ColumnDataCollectionSegment::ReadVectorInternal(ChunkManagementState &stat
 	// first figure out how many rows we need to copy by looping over all of the child vector indexes
 	idx_t vector_count = 0;
 	auto next_index = vector_index;
+    // 会有next_index的情况，是因为列表存在吗？
 	while (next_index.IsValid()) {
 		auto &current_vdata = GetVectorData(next_index);
 		vector_count += current_vdata.count;
 		next_index = current_vdata.next_data;
 	}
+    // 直接resize？不会超？
 	// resize the result vector
 	result.Resize(0, vector_count);
 	next_index = vector_index;
@@ -143,10 +159,12 @@ idx_t ColumnDataCollectionSegment::ReadVectorInternal(ChunkManagementState &stat
 		auto &current_vdata = GetVectorData(next_index);
 		base_ptr = allocator->GetDataPointer(state, current_vdata.block_id, current_vdata.offset);
 		validity_data = GetValidityPointer(base_ptr, type_size);
+        // 直接拷贝过去
 		if (type_size > 0) {
 			memcpy(target_data + current_offset * type_size, base_ptr, current_vdata.count * type_size);
 		}
 		// FIXME: use bitwise operations here
+        // TODO(lokax):
 		ValidityMask current_validity(validity_data);
 		for (idx_t k = 0; k < current_vdata.count; k++) {
 			target_validity.Set(current_offset + k, current_validity.RowIsValid(k));
@@ -157,6 +175,7 @@ idx_t ColumnDataCollectionSegment::ReadVectorInternal(ChunkManagementState &stat
 	return vector_count;
 }
 
+// 看过
 idx_t ColumnDataCollectionSegment::ReadVector(ChunkManagementState &state, VectorDataIndex vector_index,
                                               Vector &result) {
 	auto &vector_type = result.GetType();
@@ -166,6 +185,7 @@ idx_t ColumnDataCollectionSegment::ReadVector(ChunkManagementState &state, Vecto
 		return 0;
 	}
 	auto count = ReadVectorInternal(state, vector_index, result);
+    // 接下来拷贝孩子即可
 	if (internal_type == PhysicalType::LIST) {
 		// list: copy child
 		auto &child_vector = ListVector::GetEntry(result);
@@ -183,7 +203,7 @@ idx_t ColumnDataCollectionSegment::ReadVector(ChunkManagementState &state, Vecto
 	}
 	return count;
 }
-
+// 看过
 void ColumnDataCollectionSegment::ReadChunk(idx_t chunk_index, ChunkManagementState &state, DataChunk &chunk,
                                             const vector<column_t> &column_ids) {
 	D_ASSERT(chunk.ColumnCount() == column_ids.size());
@@ -201,7 +221,7 @@ void ColumnDataCollectionSegment::ReadChunk(idx_t chunk_index, ChunkManagementSt
 idx_t ColumnDataCollectionSegment::ChunkCount() const {
 	return chunk_data.size();
 }
-
+// 看过
 void ColumnDataCollectionSegment::FetchChunk(idx_t chunk_idx, DataChunk &result) {
 	vector<column_t> column_ids;
 	column_ids.reserve(types.size());
@@ -210,11 +230,12 @@ void ColumnDataCollectionSegment::FetchChunk(idx_t chunk_idx, DataChunk &result)
 	}
 	FetchChunk(chunk_idx, result, column_ids);
 }
-
+// 看过
 void ColumnDataCollectionSegment::FetchChunk(idx_t chunk_idx, DataChunk &result, const vector<column_t> &column_ids) {
 	D_ASSERT(chunk_idx < chunk_data.size());
 	ChunkManagementState state;
 	InitializeChunkState(chunk_idx, state);
+    // 不允许零拷贝
 	state.properties = ColumnDataScanProperties::DISALLOW_ZERO_COPY;
 	ReadChunk(chunk_idx, state, result, column_ids);
 }

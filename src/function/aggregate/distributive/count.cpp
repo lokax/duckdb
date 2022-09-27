@@ -46,7 +46,7 @@ struct CountFunction : public BaseCountFunction {
 	                              idx_t count) {
 		*state += count;
 	}
-
+    // 普通的count函数忽略null值
 	static bool IgnoreNull() {
 		return true;
 	}

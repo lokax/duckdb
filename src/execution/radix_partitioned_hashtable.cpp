@@ -16,7 +16,7 @@ void RadixPartitionedHashTable::SetGroupingValues() {
 		for (idx_t i = 0; i < grouping.size(); i++) {
 			if (grouping_set.find(grouping[i]) == grouping_set.end()) {
 				// we don't group on this value!
-				grouping_value += 1 << (grouping.size() - (i + 1));
+				grouping_value += (int64_t)1 << (grouping.size() - (i + 1));
 			}
 		}
 		grouping_values.push_back(Value::BIGINT(grouping_value));
@@ -129,6 +129,8 @@ void RadixPartitionedHashTable::Sink(ExecutionContext &context, GlobalSinkState 
 	// if we have non-combinable aggregates (e.g. string_agg) or any distinct aggregates we cannot keep parallel hash
 	// tables
 	if (ForceSingleHT(state)) {
+        // 加锁
+        // 不能并行?
 		lock_guard<mutex> glock(gstate.lock);
 		gstate.is_empty = gstate.is_empty && group_chunk.size() == 0;
 		if (gstate.finalized_hts.empty()) {
@@ -149,6 +151,7 @@ void RadixPartitionedHashTable::Sink(ExecutionContext &context, GlobalSinkState 
 	}
 
 	if (!llstate.ht) {
+        // 创建本地哈希表
 		llstate.ht = make_unique<PartitionableHashTable>(
 		    Allocator::Get(context.client), BufferManager::GetBufferManager(context.client), gstate.partition_info,
 		    group_types, op.payload_types, op.bindings);

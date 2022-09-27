@@ -85,8 +85,7 @@ static unique_ptr<BaseStatistics> TableScanStatistics(ClientContext &context, co
 		// we don't emit any statistics for tables that have outstanding transaction-local data
 		return nullptr;
 	}
-	auto storage_idx = GetStorageIndex(*bind_data.table, column_id);
-	return bind_data.table->storage->GetStatistics(context, storage_idx);
+	return bind_data.table->GetStatistics(context, column_id);
 }
 
 static void TableScanFunc(ClientContext &context, TableFunctionInput &data_p, DataChunk &output) {
@@ -446,3 +445,20 @@ void BuiltinFunctions::RegisterTableScanFunctions() {
 }
 
 } // namespace duckdb
+
+/*
+D SELECT * FROM t0 WHERE x > 'defz';
+开始
+查找
+开始
+D CREATE TABLE t1 (x VARCHAR PRIMARY KEY);
+Error: Catalog Error: Table with name "t1" already exists!
+D CREATE TABLE t2 (x VARCHAR PRIMARY KEY);
+Error: Catalog Error: Table with name "t2" already exists!
+D CREATE TABLE t3 (x VARCHAR PRIMARY KEY);
+D INSERT INTO t3 VALUES ('abc');
+D INSERT INTO t3 VALUES ('def');
+D SELECT * FROM t3 WHERE x > 'z';
+开始
+Error: INTERNAL Error: Unimplemented GetChildGreaterEqual for ARTNode
+*/

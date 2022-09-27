@@ -13,6 +13,7 @@ struct ColumnDataMetaData;
 typedef void (*column_data_copy_function_t)(ColumnDataMetaData &meta_data, const UnifiedVectorFormat &source_data,
                                             Vector &source, idx_t offset, idx_t copy_count);
 
+// 拷贝函数的封装类
 struct ColumnDataCopyFunction {
 	column_data_copy_function_t function;
 	vector<ColumnDataCopyFunction> child_functions;
@@ -91,6 +92,7 @@ void ColumnDataCollection::Initialize(vector<LogicalType> types_p) {
 	}
 }
 
+// 创建一个collection segment
 void ColumnDataCollection::CreateSegment() {
 	segments.emplace_back(make_unique<ColumnDataCollectionSegment>(allocator, types));
 }
@@ -278,6 +280,7 @@ void ColumnDataCollection::InitializeAppend(ColumnDataAppendState &state) {
 		CreateSegment();
 	}
 	auto &segment = *segments.back();
+    // 分配new chunk
 	if (segment.chunk_data.empty()) {
 		segment.AllocateNewChunk();
 	}
@@ -336,11 +339,13 @@ struct ListValueCopy : public BaseValueCopy<list_entry_t> {
 	using TYPE = list_entry_t;
 
 	static TYPE Operation(ColumnDataMetaData &meta_data, TYPE input) {
+        // TODO(lokax): 这里不设置length？
 		input.offset += meta_data.child_list_size;
 		return input;
 	}
 };
 
+// 结构体拷贝，这里什么都不做
 struct StructValueCopy {
 	static idx_t TypeSize() {
 		return 0;
@@ -361,6 +366,7 @@ static void TemplatedColumnDataCopy(ColumnDataMetaData &meta_data, const Unified
 	auto current_index = meta_data.vector_data_index;
 	idx_t remaining = count;
 	while (remaining > 0) {
+        // 是否正常情况下，Vector的Size不会超过1024
 		auto &current_segment = segment.GetVectorData(current_index);
 		idx_t append_count = MinValue<idx_t>(STANDARD_VECTOR_SIZE - current_segment.count, remaining);
 
@@ -386,6 +392,7 @@ static void TemplatedColumnDataCopy(ColumnDataMetaData &meta_data, const Unified
 		current_segment.count += append_count;
 		offset += append_count;
 		remaining -= append_count;
+        // 还有数据的情况是否代表这是列表的原因？
 		if (remaining > 0) {
 			// need to append more, check if we need to allocate a new vector or not
 			if (!current_segment.next_data.IsValid()) {
@@ -422,15 +429,22 @@ void ColumnDataCopy<list_entry_t>(ColumnDataMetaData &meta_data, const UnifiedVe
 	UnifiedVectorFormat child_vector_data;
 	child_vector.ToUnifiedFormat(child_list_size, child_vector_data);
 
+    // 分配child向量
+    // 难道最初分配的时候不会设置child index吗？
+    // 是的，只会会struct分配孩子，不会为列表分配孩子
+    // TODO(lokax): 是否可以聚集在一起呢
 	if (!meta_data.GetVectorMetaData().child_index.IsValid()) {
 		auto child_index = segment.AllocateVector(child_type, meta_data.chunk_data, meta_data.state);
 		meta_data.GetVectorMetaData().child_index = meta_data.segment.AddChildIndex(child_index);
 	}
+    // 拿出孩子的拷贝函数
 	auto &child_function = meta_data.copy_function.child_functions[0];
 	auto child_index = segment.GetChildIndex(meta_data.GetVectorMetaData().child_index);
 	// figure out the current list size by traversing the set of child entries
 	idx_t current_list_size = 0;
 	auto current_child_index = child_index;
+    // 这个东西能到不算空吗?
+    // TODO(lokax): 这个东西有没有必要
 	while (current_child_index.IsValid()) {
 		auto &child_vdata = segment.GetVectorData(current_child_index);
 		current_list_size += child_vdata.count;
@@ -439,8 +453,10 @@ void ColumnDataCopy<list_entry_t>(ColumnDataMetaData &meta_data, const UnifiedVe
 	ColumnDataMetaData child_meta_data(child_function, meta_data, child_index);
 	// FIXME: appending the entire child list here is not required
 	// We can also scan the actual list entries required per the offset/copy_count
+    // 拷贝孩子
 	child_function.function(child_meta_data, child_vector_data, child_vector, 0, child_list_size);
 
+    // 拷贝list entry?
 	// now copy the list entries
 	meta_data.child_list_size = current_list_size;
 	TemplatedColumnDataCopy<ListValueCopy>(meta_data, source_data, source, offset, copy_count);
@@ -552,6 +568,7 @@ void ColumnDataCollection::Append(ColumnDataAppendState &state, DataChunk &input
 
 	auto &segment = *segments.back();
 	for (idx_t vector_idx = 0; vector_idx < types.size(); vector_idx++) {
+        // TODO(lokax): Struct和List才要flatten?
 		if (IsComplexType(input.data[vector_idx].GetType())) {
 			input.data[vector_idx].Flatten(input.size());
 		}

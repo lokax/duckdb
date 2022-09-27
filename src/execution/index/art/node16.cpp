@@ -11,6 +11,7 @@ Node16::Node16() : Node(NodeType::N16) {
 }
 
 idx_t Node16::GetChildPos(uint8_t k) {
+    // 也是暴力搜索，没有用SIMD优化
 	for (idx_t pos = 0; pos < count; pos++) {
 		if (key[pos] == k) {
 			return pos;
@@ -107,7 +108,7 @@ void Node16::Erase(Node *&node, int pos, ART &art) {
 		}
 		n->children[pos] = nullptr;
 	}
-
+    // TODO(lokax): 这里缩小node的类型
 	if (node->count <= 3) {
 		// Shrink node
 		auto new_node = new Node4();

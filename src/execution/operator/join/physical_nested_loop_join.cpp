@@ -295,9 +295,10 @@ void PhysicalNestedLoopJoin::ResolveSimpleJoin(ExecutionContext &context, DataCh
 	auto &state = (PhysicalNestedLoopJoinState &)state_p;
 	auto &gstate = (NestedLoopJoinGlobalState &)*sink_state;
 
+    // 计算join key
 	// resolve the left join condition for the current chunk
 	state.lhs_executor.Execute(input, state.left_condition);
-
+    // 创建found match数组
 	bool found_match[STANDARD_VECTOR_SIZE] = {false};
 	NestedLoopJoinMark::Perform(state.left_condition, gstate.right_condition_data, found_match, conditions);
 	switch (join_type) {

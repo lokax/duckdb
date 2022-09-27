@@ -10,7 +10,9 @@ Prefix::Prefix() : size(0) {
 }
 
 Prefix::Prefix(Key &key, uint32_t depth, uint32_t size) : size(size) {
+    // 分配前缀空间
 	// Allocate new prefix
+    // size是前缀的长度
 	prefix = unique_ptr<uint8_t[]>(new uint8_t[size]);
 
 	// Copy Key to Prefix
@@ -24,7 +26,7 @@ uint8_t &Prefix::operator[](idx_t idx) {
 	D_ASSERT(idx < Size());
 	return prefix[idx];
 }
-
+// 拷贝构造
 Prefix &Prefix::operator=(const Prefix &src) {
 	// Allocate new prefix
 	prefix = unique_ptr<uint8_t[]>(new uint8_t[src.size]);
@@ -44,6 +46,7 @@ Prefix &Prefix::operator=(Prefix &&other) noexcept {
 }
 
 uint8_t Prefix::Reduce(uint32_t n) {
+    // 这里减1真奇怪
 	auto new_size = size - n - 1;
 	auto new_prefix = unique_ptr<uint8_t[]>(new uint8_t[new_size]);
 	auto key = prefix[n];
@@ -56,6 +59,7 @@ uint8_t Prefix::Reduce(uint32_t n) {
 }
 
 void Prefix::Concatenate(uint8_t key, Prefix &other) {
+    // 这里为什么要加1
 	auto new_length = size + 1 + other.size;
 	// have to allocate space in our prefix array
 	unique_ptr<uint8_t[]> new_prefix = unique_ptr<uint8_t[]>(new uint8_t[new_length]);
@@ -88,9 +92,10 @@ void Prefix::Deserialize(duckdb::MetaBlockReader &reader) {
 		prefix[i] = reader.Read<uint8_t>();
 	}
 }
-
+// 找到第一个不匹配的位置
 uint32_t Prefix::KeyMismatchPosition(Key &key, uint64_t depth) {
 	uint64_t pos;
+    // 遍历前缀长度
 	for (pos = 0; pos < size; pos++) {
 		if (key[depth + pos] != prefix[pos]) {
 			return pos;

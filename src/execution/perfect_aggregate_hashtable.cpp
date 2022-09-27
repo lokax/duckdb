@@ -12,20 +12,26 @@ PerfectAggregateHashTable::PerfectAggregateHashTable(Allocator &allocator, Buffe
     : BaseAggregateHashTable(allocator, aggregate_objects_p, buffer_manager, move(payload_types_p)),
       addresses(LogicalType::POINTER), required_bits(move(required_bits_p)), total_required_bits(0),
       group_minima(move(group_minima_p)), sel(STANDARD_VECTOR_SIZE) {
+    // 计算总需要的位数
 	for (auto &group_bits : required_bits) {
 		total_required_bits += group_bits;
 	}
+    // 计算总的分组数量
 	// the total amount of groups we allocate space for is 2^required_bits
-	total_groups = 1 << total_required_bits;
+	total_groups = (uint64_t)1 << total_required_bits;
 	// we don't need to store the groups in a perfect hash table, since the group keys can be deduced by their location
+    // 分组列数
 	grouping_columns = group_types_p.size();
+    // layout只存聚合
 	layout.Initialize(move(aggregate_objects_p));
+    // 获得tuple的长度
 	tuple_size = layout.GetRowWidth();
 
+    // 分配空间
 	// allocate and null initialize the data
 	owned_data = unique_ptr<data_t[]>(new data_t[tuple_size * total_groups]);
 	data = owned_data.get();
-
+    // 用来表明张伟
 	// set up the empty payloads for every tuple, and initialize the "occupied" flag to false
 	group_is_set = unique_ptr<bool[]>(new bool[total_groups]);
 	memset(group_is_set.get(), 0, total_groups * sizeof(bool));
@@ -39,6 +45,7 @@ template <class T>
 static void ComputeGroupLocationTemplated(UnifiedVectorFormat &group_data, Value &min, uintptr_t *address_data,
                                           idx_t current_shift, idx_t count) {
 	auto data = (T *)group_data.data;
+    // 获得最小值
 	auto min_val = min.GetValueUnsafe<T>();
 	if (!group_data.validity.AllValid()) {
 		for (idx_t i = 0; i < count; i++) {
@@ -57,6 +64,7 @@ static void ComputeGroupLocationTemplated(UnifiedVectorFormat &group_data, Value
 		// no null values: we can directly compute the addresses
 		for (idx_t i = 0; i < count; i++) {
 			auto index = group_data.sel->get_index(i);
+            // 为什么要加1, 0表示空组
 			uintptr_t adjusted_value = (data[index] - min_val) + 1;
 			address_data[i] += adjusted_value << current_shift;
 		}
@@ -94,6 +102,7 @@ void PerfectAggregateHashTable::AddChunk(DataChunk &groups, DataChunk &payload) 
 
 	// then compute the actual group location by iterating over each of the groups
 	idx_t current_shift = total_required_bits;
+    // 遍历每一个分组列
 	for (idx_t i = 0; i < groups.ColumnCount(); i++) {
 		current_shift -= required_bits[i];
 		ComputeGroupLocation(groups.data[i], group_minima[i], address_data, current_shift, groups.size());
@@ -108,6 +117,7 @@ void PerfectAggregateHashTable::AddChunk(DataChunk &groups, DataChunk &payload) 
 		if (!group_is_set[group]) {
 			group_is_set[group] = true;
 			sel.set_index(needs_init++, i);
+            // 满一个向量后再初始化
 			if (needs_init == STANDARD_VECTOR_SIZE) {
 				RowOperations::InitializeStates(layout, addresses, sel, needs_init);
 				needs_init = 0;
@@ -200,7 +210,7 @@ static void ReconstructGroupVectorTemplated(uint32_t group_values[], Value &min,
 static void ReconstructGroupVector(uint32_t group_values[], Value &min, idx_t required_bits, idx_t shift,
                                    idx_t entry_count, Vector &result) {
 	// construct the mask for this entry
-	idx_t mask = (1 << required_bits) - 1;
+	idx_t mask = ((uint64_t)1 << required_bits) - 1;
 	switch (result.GetType().InternalType()) {
 	case PhysicalType::INT8:
 		ReconstructGroupVectorTemplated<int8_t>(group_values, min, mask, shift, entry_count, result);

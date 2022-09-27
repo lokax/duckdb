@@ -11,7 +11,7 @@ struct SortedAggregateBindData : public FunctionData {
 		if (sense != OrderType::DESCENDING) {
 			return null_order;
 		}
-
+        // 这里干什么？看不懂,懂了，和CompareTuple有关系
 		switch (null_order) {
 		case OrderByNullType::NULLS_FIRST:
 			return OrderByNullType::NULLS_LAST;
@@ -113,6 +113,7 @@ struct SortedAggregateFunction {
 		sort_chunk.SetCardinality(count);
 	}
 
+    // Update时只是把数据保存下来
 	static void SimpleUpdate(Vector inputs[], AggregateInputData &aggr_input_data, idx_t input_count, data_ptr_t state,
 	                         idx_t count) {
         // 拿出bind data
@@ -227,6 +228,7 @@ struct SortedAggregateFunction {
 			if (agg_count > 0) {
 				reordering.resize(agg_count);
                 // 这里进行排序
+                // 数据很多的话，这里排序代价很大吧？
 				state->ordering.Sort(order_bind->order_sense, order_bind->null_order, reordering.data());
                 // 再reorder
 				state->arguments.Reorder(reordering.data());
@@ -267,13 +269,16 @@ unique_ptr<FunctionData> AggregateFunction::BindSortedAggregate(AggregateFunctio
                                                                 unique_ptr<FunctionData> bind_info,
                                                                 unique_ptr<BoundOrderModifier> order_bys) {
 
+    // 创建sorted aggregate data
 	auto sorted_bind = make_unique<SortedAggregateBindData>(bound_function, children, move(bind_info), *order_bys);
 
+    // 排序列也要加进参数中
 	// The arguments are the children plus the sort columns.
 	for (auto &order : order_bys->orders) {
 		children.emplace_back(move(order.expression));
 	}
 
+    // 存返回类型
 	vector<LogicalType> arguments;
 	arguments.reserve(children.size());
 	for (const auto &child : children) {

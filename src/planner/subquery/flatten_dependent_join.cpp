@@ -54,6 +54,7 @@ unique_ptr<LogicalOperator> FlattenDependentJoins::PushDownDependentJoin(unique_
 	return result;
 }
 
+// fiter中是否有子查询?
 bool SubqueryDependentFilter(Expression *expr) {
 	if (expr->expression_class == ExpressionClass::BOUND_CONJUNCTION &&
 	    expr->GetExpressionType() == ExpressionType::CONJUNCTION_AND) {
@@ -79,6 +80,7 @@ unique_ptr<LogicalOperator> FlattenDependentJoins::PushDownDependentJoinInternal
 		// we can eliminate the dependent join now and create a simple cross product
 		// now create the duplicate eliminated scan for this node
 		auto delim_index = binder.GenerateTableIndex();
+        // 这里column index是0
 		this->base_binding = ColumnBinding(delim_index, 0);
 		auto delim_scan = make_unique<LogicalDelimGet>(delim_index, delim_types);
 		return LogicalCrossProduct::Create(move(delim_scan), move(plan));
@@ -88,6 +90,7 @@ unique_ptr<LogicalOperator> FlattenDependentJoins::PushDownDependentJoinInternal
 	case LogicalOperatorType::LOGICAL_FILTER: {
 		// filter
 		// first we flatten the dependent join in the child of the filter
+        // 这个any join到底代表什么
 		for (auto &expr : plan->expressions) {
 			any_join |= SubqueryDependentFilter(expr.get());
 		}
@@ -102,6 +105,7 @@ unique_ptr<LogicalOperator> FlattenDependentJoins::PushDownDependentJoinInternal
 		// projection
 		// first we flatten the dependent join in the child of the projection
 		for (auto &expr : plan->expressions) {
+            // 表达式是否会传递null值
 			parent_propagate_null_values &= expr->PropagatesNullValues();
 		}
 		plan->children[0] = PushDownDependentJoinInternal(move(plan->children[0]), parent_propagate_null_values);
@@ -117,17 +121,20 @@ unique_ptr<LogicalOperator> FlattenDependentJoins::PushDownDependentJoinInternal
 			    col.name, col.type, ColumnBinding(base_binding.table_index, base_binding.column_index + i));
 			plan->expressions.push_back(move(colref));
 		}
-
+        // binding的table index变成proj的table index
 		base_binding.table_index = proj->table_index;
 		this->delim_offset = base_binding.column_index = plan->expressions.size() - correlated_columns.size();
 		this->data_offset = 0;
 		return plan;
 	}
 	case LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY: {
+        // 拿出聚合算子
 		auto &aggr = (LogicalAggregate &)*plan;
 		// aggregate and group by
 		// first we flatten the dependent join in the child of the projection
 		for (auto &expr : plan->expressions) {
+            // 注意看：这里是按位与而不是或
+            // 如果任何一个结果是false，那么最终结果也是false
 			parent_propagate_null_values &= expr->PropagatesNullValues();
 		}
 		plan->children[0] = PushDownDependentJoinInternal(move(plan->children[0]), parent_propagate_null_values);
@@ -138,6 +145,7 @@ unique_ptr<LogicalOperator> FlattenDependentJoins::PushDownDependentJoinInternal
 		idx_t delim_table_index;
 		idx_t delim_column_offset;
 		idx_t delim_data_offset;
+        // 如果不能perform_delim的话，新的分组列是1?
 		auto new_group_count = perform_delim ? correlated_columns.size() : 1;
 		for (idx_t i = 0; i < new_group_count; i++) {
 			auto &col = correlated_columns[i];
@@ -170,9 +178,14 @@ unique_ptr<LogicalOperator> FlattenDependentJoins::PushDownDependentJoinInternal
 		if (!perform_delim) {
 			// if we are not performing the duplicate elimination, we have only added the row_id column to the grouping
 			// operators in this case, we push a FIRST aggregate for each of the remaining expressions
+            // 这里之所以是aggregate_index是因为关联列被first函数包裹起来了
 			delim_table_index = aggr.aggregate_index;
 			delim_column_offset = aggr.expressions.size();
+            // 这里又是为什么阿？
 			delim_data_offset = aggr.groups.size();
+            // row number是分组
+            // 为了能使用group by算子，其他关联列求first，这没有问题，row_number是唯一的
+            // 遍历每一个关联列, 对关联列求first?
 			for (idx_t i = 0; i < correlated_columns.size(); i++) {
 				auto &col = correlated_columns[i];
 				auto first_aggregate = FirstFun::GetFunction(col.type);
@@ -187,8 +200,10 @@ unique_ptr<LogicalOperator> FlattenDependentJoins::PushDownDependentJoinInternal
 		} else {
 			delim_table_index = aggr.group_index;
 			delim_column_offset = aggr.groups.size() - correlated_columns.size();
+            // 聚合开始的位置?
 			delim_data_offset = aggr.groups.size();
 		}
+        // scalar group by
 		if (aggr.groups.size() == new_group_count) {
 			// we have to perform a LEFT OUTER JOIN between the result of this aggregate and the delim scan
 			// FIXME: this does not always have to be a LEFT OUTER JOIN, depending on whether aggr.expressions return
@@ -196,6 +211,10 @@ unique_ptr<LogicalOperator> FlattenDependentJoins::PushDownDependentJoinInternal
 			unique_ptr<LogicalComparisonJoin> join = make_unique<LogicalComparisonJoin>(JoinType::INNER);
 			for (auto &aggr_exp : aggr.expressions) {
 				auto b_aggr_exp = (BoundAggregateExpression *)aggr_exp.get();
+                // 1、如果当前表达式不会产生NULL值
+                // 2、any join到底为什么
+                // 3、
+                // 1、例子：EXPLAIN SELECT t1.x FROM test t1 WHERE  (SELECT sum(x) FROM test WHERE t1.x = 1) = x;
 				if (!b_aggr_exp->PropagatesNullValues() || any_join || !parent_propagate_null_values) {
 					// std::cout << "LEFT JOIN!!!" << std::endl;
 					join = make_unique<LogicalComparisonJoin>(JoinType::LEFT);
@@ -234,11 +253,14 @@ unique_ptr<LogicalOperator> FlattenDependentJoins::PushDownDependentJoinInternal
 			}
 			// now we update the delim_index
 			base_binding.table_index = left_index;
+            
 			this->delim_offset = base_binding.column_index = 0;
+            // data offset为什么是0,我觉得这里错了
 			this->data_offset = 0;
 			return move(join);
 		} else {
 			// update the delim_index
+            // 更新成分组的index
 			base_binding.table_index = delim_table_index;
 			this->delim_offset = base_binding.column_index = delim_column_offset;
 			this->data_offset = delim_data_offset;
@@ -273,6 +295,7 @@ unique_ptr<LogicalOperator> FlattenDependentJoins::PushDownDependentJoinInternal
 			    correlated_columns[i].type, ColumnBinding(left_binding.table_index, left_binding.column_index + i));
 			cond.right = make_unique<BoundColumnRefExpression>(
 			    correlated_columns[i].type, ColumnBinding(base_binding.table_index, base_binding.column_index + i));
+            // 关联列的比较是NULL值相等
 			cond.comparison = ExpressionType::COMPARE_NOT_DISTINCT_FROM;
 			join->conditions.push_back(move(cond));
 		}
@@ -289,6 +312,7 @@ unique_ptr<LogicalOperator> FlattenDependentJoins::PushDownDependentJoinInternal
 		bool right_has_correlation = has_correlated_expressions.find(plan->children[1].get())->second;
 
 		if (join.join_type == JoinType::INNER) {
+            // inner join正常推
 			// inner join
 			if (!right_has_correlation) {
 				// only left has correlation: push into left
@@ -303,6 +327,7 @@ unique_ptr<LogicalOperator> FlattenDependentJoins::PushDownDependentJoinInternal
 				return plan;
 			}
 		} else if (join.join_type == JoinType::LEFT) {
+            // 右边没有关联，则直接推左边
 			// left outer join
 			if (!right_has_correlation) {
 				// only left has correlation: push into left
@@ -391,6 +416,7 @@ unique_ptr<LogicalOperator> FlattenDependentJoins::PushDownDependentJoinInternal
 		} else {
 			child = PushDownDependentJoinInternal(move(plan->children[0]), parent_propagate_null_values);
 		}
+        // 孩子的列数
 		auto child_column_count = child->GetColumnBindings().size();
 		// we push a row_number() OVER (PARTITION BY [correlated columns])
 		auto window_index = binder.GenerateTableIndex();
@@ -398,12 +424,14 @@ unique_ptr<LogicalOperator> FlattenDependentJoins::PushDownDependentJoinInternal
 		auto row_number = make_unique<BoundWindowExpression>(ExpressionType::WINDOW_ROW_NUMBER, LogicalType::BIGINT,
 		                                                     nullptr, nullptr);
 		auto partition_count = perform_delim ? correlated_columns.size() : 1;
+        // 对关联列进行分区
 		for (idx_t i = 0; i < partition_count; i++) {
 			auto &col = correlated_columns[i];
 			auto colref = make_unique<BoundColumnRefExpression>(
 			    col.name, col.type, ColumnBinding(base_binding.table_index, base_binding.column_index + i));
 			row_number->partitions.push_back(move(colref));
 		}
+        // 不是所有数据都去排，而是每个分区的方式去排，有点意思
 		if (order_by) {
 			// optimization: if there is an ORDER BY node followed by a LIMIT
 			// rather than computing the entire order, we push the ORDER BY expressions into the row_num computation
@@ -455,6 +483,7 @@ unique_ptr<LogicalOperator> FlattenDependentJoins::PushDownDependentJoinInternal
 		// push into children
 		plan->children[0] = PushDownDependentJoinInternal(move(plan->children[0]), parent_propagate_null_values);
 		// add the correlated columns to the PARTITION BY clauses in the Window
+        // 添加到partition的位置
 		for (auto &expr : window.expressions) {
 			D_ASSERT(expr->GetExpressionClass() == ExpressionClass::BOUND_WINDOW);
 			auto &w = (BoundWindowExpression &)*expr;
@@ -476,10 +505,12 @@ unique_ptr<LogicalOperator> FlattenDependentJoins::PushDownDependentJoinInternal
 		// we have to refer to the setop index now
 		base_binding.table_index = setop.table_index;
 		base_binding.column_index = setop.column_count;
+        // 实际关联列的增加，孩子已经做了
 		setop.column_count += correlated_columns.size();
 		return plan;
 	}
 	case LogicalOperatorType::LOGICAL_DISTINCT:
+        // 直接处理孩子
 		plan->children[0] = PushDownDependentJoin(move(plan->children[0]));
 		return plan;
 	case LogicalOperatorType::LOGICAL_EXPRESSION_GET: {
@@ -490,6 +521,7 @@ unique_ptr<LogicalOperator> FlattenDependentJoins::PushDownDependentJoinInternal
 		RewriteCorrelatedExpressions rewriter(base_binding, correlated_map);
 		rewriter.VisitOperator(*plan);
 		// now we add all the correlated columns to each of the expressions of the expression scan
+        // 添加进去，正常处理
 		auto expr_get = (LogicalExpressionGet *)plan.get();
 		for (idx_t i = 0; i < correlated_columns.size(); i++) {
 			for (auto &expr_list : expr_get->expressions) {
@@ -499,13 +531,15 @@ unique_ptr<LogicalOperator> FlattenDependentJoins::PushDownDependentJoinInternal
 			}
 			expr_get->expr_types.push_back(correlated_columns[i].type);
 		}
-
+        // 更新index
 		base_binding.table_index = expr_get->table_index;
+        // delim列开始的位置
 		this->delim_offset = base_binding.column_index = expr_get->expr_types.size() - correlated_columns.size();
 		this->data_offset = 0;
 		return plan;
 	}
 	case LogicalOperatorType::LOGICAL_ORDER_BY:
+        // 直接处理孩子
 		plan->children[0] = PushDownDependentJoin(move(plan->children[0]));
 		return plan;
 	default:

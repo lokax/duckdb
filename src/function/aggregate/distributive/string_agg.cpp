@@ -53,7 +53,7 @@ struct StringAggFunction {
 			delete[] state->dataptr;
 		}
 	}
-
+    // 忽略NULL值
 	static bool IgnoreNull() {
 		return true;
 	}
@@ -93,6 +93,7 @@ struct StringAggFunction {
 		PerformOperation(state, str.GetDataUnsafe(), data.sep.c_str(), str.GetSize(), data.sep.size());
 	}
 
+    // TODO(lokax): InputData会在这里输入进来
 	template <class INPUT_TYPE, class STATE, class OP>
 	static void Operation(STATE *state, AggregateInputData &aggr_input_data, INPUT_TYPE *str_data,
 	                      ValidityMask &str_mask, idx_t str_idx) {
@@ -125,15 +126,19 @@ unique_ptr<FunctionData> StringAggBind(ClientContext &context, AggregateFunction
 	}
 	D_ASSERT(arguments.size() == 2);
 	if (arguments[1]->HasParameter()) {
+        // ?的情况吗？
 		throw ParameterNotResolvedException();
 	}
 	if (!arguments[1]->IsFoldable()) {
+        // 可折叠代表是常量？
 		throw BinderException("Separator argument to StringAgg must be a constant");
 	}
 	auto separator_val = ExpressionExecutor::EvaluateScalar(*arguments[1]);
 	if (separator_val.IsNull()) {
+        // 直接让参数0是空值？
 		arguments[0] = make_unique<BoundConstantExpression>(Value(LogicalType::VARCHAR));
 	}
+    // 把第二个参数移除掉?
 	Function::EraseArgument(function, arguments, arguments.size() - 1);
 	return make_unique<StringAggBindData>(separator_val.ToString());
 }

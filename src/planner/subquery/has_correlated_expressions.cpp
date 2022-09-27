@@ -32,6 +32,7 @@ unique_ptr<Expression> HasCorrelatedExpressions::VisitReplace(BoundSubqueryExpre
 	if (!expr.IsCorrelated()) {
 		return nullptr;
 	}
+    // EXPLAIN SELECT t1.x FROM test t1 WHERE  (SELECT sum(x) FROM test t2 WHERE (SELECT t2.x == 1 FROM test t3) AND t1.x > 1) = x;
 	// check if the subquery contains any of the correlated expressions that we are concerned about in this node
 	for (idx_t i = 0; i < correlated_columns.size(); i++) {
 		if (std::find(expr.binder->correlated_columns.begin(), expr.binder->correlated_columns.end(),

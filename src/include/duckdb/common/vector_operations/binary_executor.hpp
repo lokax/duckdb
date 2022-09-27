@@ -85,6 +85,7 @@ struct BinaryExecutor {
 			for (idx_t entry_idx = 0; entry_idx < entry_count; entry_idx++) {
 				auto validity_entry = mask.GetValidityEntry(entry_idx);
 				idx_t next = MinValue<idx_t>(base_idx + ValidityMask::BITS_PER_VALUE, count);
+                // 所有都是有效
 				if (ValidityMask::AllValid(validity_entry)) {
 					// all valid: perform operation
 					for (; base_idx < next; base_idx++) {
@@ -95,6 +96,7 @@ struct BinaryExecutor {
 						        fun, lentry, rentry, mask, base_idx);
 					}
 				} else if (ValidityMask::NoneValid(validity_entry)) {
+                    // 全部无效，直接跳过
 					// nothing valid: skip all
 					base_idx = next;
 					continue;
@@ -124,12 +126,14 @@ struct BinaryExecutor {
 
 	template <class LEFT_TYPE, class RIGHT_TYPE, class RESULT_TYPE, class OPWRAPPER, class OP, class FUNC>
 	static void ExecuteConstant(Vector &left, Vector &right, Vector &result, FUNC fun) {
+        // 将结果向量设置成常量向量
 		result.SetVectorType(VectorType::CONSTANT_VECTOR);
 
 		auto ldata = ConstantVector::GetData<LEFT_TYPE>(left);
 		auto rdata = ConstantVector::GetData<RIGHT_TYPE>(right);
 		auto result_data = ConstantVector::GetData<RESULT_TYPE>(result);
 
+        // 直接设置成NULL
 		if (ConstantVector::IsNull(left) || ConstantVector::IsNull(right)) {
 			ConstantVector::SetNull(result, true);
 			return;
@@ -144,18 +148,20 @@ struct BinaryExecutor {
 		auto ldata = FlatVector::GetData<LEFT_TYPE>(left);
 		auto rdata = FlatVector::GetData<RIGHT_TYPE>(right);
 
+        // 直接设置成NULL
 		if ((LEFT_CONSTANT && ConstantVector::IsNull(left)) || (RIGHT_CONSTANT && ConstantVector::IsNull(right))) {
 			// either left or right is constant NULL: result is constant NULL
 			result.SetVectorType(VectorType::CONSTANT_VECTOR);
 			ConstantVector::SetNull(result, true);
 			return;
 		}
-
+        // 设置成flat vector
 		result.SetVectorType(VectorType::FLAT_VECTOR);
 		auto result_data = FlatVector::GetData<RESULT_TYPE>(result);
 		auto &result_validity = FlatVector::Validity(result);
 		if (LEFT_CONSTANT) {
 			if (OPWRAPPER::AddsNulls()) {
+                // 如果会添加NULL值
 				result_validity.Copy(FlatVector::Validity(right), count);
 			} else {
 				FlatVector::SetValidity(result, FlatVector::Validity(right));
@@ -179,6 +185,7 @@ struct BinaryExecutor {
 				result_validity.Combine(FlatVector::Validity(right), count);
 			}
 		}
+        // 执行flat loop
 		ExecuteFlatLoop<LEFT_TYPE, RIGHT_TYPE, RESULT_TYPE, OPWRAPPER, OP, FUNC, LEFT_CONSTANT, RIGHT_CONSTANT>(
 		    ldata, rdata, result_data, count, result_validity, fun);
 	}

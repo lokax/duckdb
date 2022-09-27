@@ -85,7 +85,8 @@ bool CrossProductExecutor::NextValue(DataChunk &input, DataChunk &output) {
 }
 
 OperatorResultType CrossProductExecutor::Execute(DataChunk &input, DataChunk &output) {
-	if (rhs.Count() == 0) {
+	// 右表没有数据，直接结束
+    if (rhs.Count() == 0) {
 		// no RHS: empty result
 		return OperatorResultType::FINISHED;
 	}

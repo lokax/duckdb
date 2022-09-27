@@ -25,6 +25,7 @@ Leaf::Leaf(unique_ptr<row_t[]> row_ids_p, idx_t num_elements_p, Prefix &prefix_p
 void Leaf::Insert(row_t row_id) {
 	// Grow array
 	if (count == capacity) {
+        // 空间不够，分配更大空间
 		auto new_row_id = unique_ptr<row_t[]>(new row_t[capacity * 2]);
 		memcpy(new_row_id.get(), row_ids.get(), capacity * sizeof(row_t));
 		capacity *= 2;
@@ -69,9 +70,11 @@ void Leaf::Remove(row_t row_id) {
 			break;
 		}
 	}
+    // row_id不存在
 	if (entry_offset == DConstants::INVALID_INDEX) {
 		return;
 	}
+    // 减小数据个数
 	count--;
 	if (capacity > 2 && count < capacity / 2) {
 		// Shrink array, if less than half full
@@ -82,6 +85,7 @@ void Leaf::Remove(row_t row_id) {
 		capacity /= 2;
 		row_ids = move(new_row_id);
 	} else {
+        // 这东西是否有序？无序的话可以和尾巴进行交换
 		// Copy the rest
 		for (idx_t j = entry_offset; j < count; j++) {
 			row_ids[j] = row_ids[j + 1];

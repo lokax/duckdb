@@ -54,6 +54,7 @@ struct ProductFunction {
 };
 
 AggregateFunction ProductFun::GetFunction() {
+    // product只支持double
 	auto fun = AggregateFunction::UnaryAggregate<ProductState, double, double, ProductFunction>(
 	    LogicalType(LogicalTypeId::DOUBLE), LogicalType::DOUBLE);
 	fun.name = "product";

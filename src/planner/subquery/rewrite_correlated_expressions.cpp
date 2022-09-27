@@ -32,11 +32,11 @@ unique_ptr<Expression> RewriteCorrelatedExpressions::VisitReplace(BoundColumnRef
 	D_ASSERT(expr.depth == 1); // 为什么一定是1呢?
 	auto entry = correlated_map.find(expr.binding);
 	D_ASSERT(entry != correlated_map.end());
-    std::cout << "Expr Name is " << expr.GetName() << std::endl;
+	std::cout << "Expr Name is " << expr.GetName() << std::endl;
 	std::cout << "之前的binding为table index = " << expr.binding.table_index << ", " << expr.binding.column_index
 	          << std::endl;
-	std::cout << "base_bind table inedx = " << base_binding.table_index << ", " << base_binding.column_index
-	          << ", " << entry->second << std::endl;
+	std::cout << "base_bind table inedx = " << base_binding.table_index << ", " << base_binding.column_index << ", "
+	          << entry->second << std::endl;
 	expr.binding = ColumnBinding(base_binding.table_index, base_binding.column_index + entry->second);
 	expr.depth = 0;
 	return nullptr;
@@ -61,6 +61,7 @@ RewriteCorrelatedExpressions::RewriteCorrelatedRecursive::RewriteCorrelatedRecur
 
 void RewriteCorrelatedExpressions::RewriteCorrelatedRecursive::RewriteCorrelatedSubquery(
     BoundSubqueryExpression &expr) {
+	// 递归处理
 	// rewrite the binding in the correlated list of the subquery)
 	for (auto &corr : expr.binder->correlated_columns) { // sub_binder
 		auto entry = correlated_map.find(corr.binding);
