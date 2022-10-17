@@ -173,9 +173,6 @@ unique_ptr<Expression> ExpressionBinder::Bind(unique_ptr<ParsedExpression> &expr
 	// bind the main expression
 	auto error_msg = Bind(&expr, 0, root_expression);
 	if (!error_msg.empty()) {
-		if (!CanContainSubqueries()) {
-			throw BinderException(error_msg);
-		}
 		// failed to bind: try to bind correlated columns in the expression (if any)
 		bool success = BindCorrelatedColumns(expr); // 绑定相关列
 		if (!success) {
@@ -189,8 +186,7 @@ unique_ptr<Expression> ExpressionBinder::Bind(unique_ptr<ParsedExpression> &expr
 	unique_ptr<Expression> result = move(bound_expr->expr); // 拿出实际的表达式
 	if (target_type.id() != LogicalTypeId::INVALID) {
 		// the binder has a specific target type: add a cast to that type
-        // 如果对表达式的返回类型有要求，则添加一个Cast Expression来做类型转换
-		result = BoundCastExpression::AddCastToType(move(result), target_type);
+		result = BoundCastExpression::AddCastToType(context, move(result), target_type);
 	} else {
 		if (!binder.can_contain_nulls) {
 			// SQL NULL type is only used internally in the binder
@@ -198,7 +194,7 @@ unique_ptr<Expression> ExpressionBinder::Bind(unique_ptr<ParsedExpression> &expr
 			if (ContainsNullType(result->return_type)) {
                 // 包含SQLNULL TYPE，则转换成整型
 				auto result_type = ExchangeNullType(result->return_type);
-				result = BoundCastExpression::AddCastToType(move(result), result_type);
+				result = BoundCastExpression::AddCastToType(context, move(result), result_type);
 			}
 		}
 		if (result->return_type.id() == LogicalTypeId::UNKNOWN) {
@@ -233,10 +229,6 @@ string ExpressionBinder::Bind(unique_ptr<ParsedExpression> *expr, idx_t depth, b
 		be->expr->alias = alias;
 	}
 	return string();
-}
-
-bool ExpressionBinder::CanContainSubqueries() {
-	return true;
 }
 
 } // namespace duckdb

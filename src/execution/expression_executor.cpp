@@ -255,10 +255,12 @@ idx_t ExpressionExecutor::DefaultSelect(const Expression &expr, ExpressionState 
 	// generic selection of boolean expression:
 	// resolve the true/false expression first
 	// then use that to generate the selection vector
+    // 创建中间结果
 	bool intermediate_bools[STANDARD_VECTOR_SIZE];
 	Vector intermediate(LogicalType::BOOLEAN, (data_ptr_t)intermediate_bools);
+    // 直接执行表达式,必须保证表达式是返回bool类型的
 	Execute(expr, state, sel, count, intermediate);
-
+    // 转换成统一格式
 	UnifiedVectorFormat idata;
 	intermediate.ToUnifiedFormat(count, idata);
 

@@ -29,7 +29,7 @@ static void ListValueFunction(DataChunk &args, ExpressionState &state, Vector &r
 		result_data[i].offset = ListVector::GetListSize(result);
         // 每一列数据作为列表的数据推进去
 		for (idx_t col_idx = 0; col_idx < args.ColumnCount(); col_idx++) {
-			auto val = args.GetValue(col_idx, i).CastAs(child_type);
+			auto val = args.GetValue(col_idx, i).DefaultCastAs(child_type);
 			ListVector::PushBack(result, val);
 		}
 		result_data[i].length = args.ColumnCount();

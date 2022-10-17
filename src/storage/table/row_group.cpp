@@ -62,17 +62,18 @@ void RowGroup::InitializeEmpty(const vector<LogicalType> &types) {
 }
 
 bool RowGroup::InitializeScanWithOffset(RowGroupScanState &state, idx_t vector_offset) {
-	auto &column_ids = state.parent.column_ids;
-	if (state.parent.table_filters) {
-		if (!CheckZonemap(*state.parent.table_filters, column_ids)) {
+	auto &column_ids = state.GetColumnIds();
+	auto filters = state.GetFilters();
+	auto parent_max_row = state.GetParentMaxRow();
+	if (filters) {
+		if (!CheckZonemap(*filters, column_ids)) {
 			return false;
 		}
 	}
 
 	state.row_group = this;
 	state.vector_index = vector_offset;
-	state.max_row =
-	    this->start > state.parent.max_row ? 0 : MinValue<idx_t>(this->count, state.parent.max_row - this->start);
+	state.max_row = this->start > parent_max_row ? 0 : MinValue<idx_t>(this->count, parent_max_row - this->start);
 	state.column_scans = unique_ptr<ColumnScanState[]>(new ColumnScanState[column_ids.size()]);
 	for (idx_t i = 0; i < column_ids.size(); i++) {
 		auto column = column_ids[i];
@@ -87,16 +88,17 @@ bool RowGroup::InitializeScanWithOffset(RowGroupScanState &state, idx_t vector_o
 }
 
 bool RowGroup::InitializeScan(RowGroupScanState &state) {
-	auto &column_ids = state.parent.column_ids; // 要获取的列id
-	if (state.parent.table_filters) {
-		if (!CheckZonemap(*state.parent.table_filters, column_ids)) {
+	auto &column_ids = state.GetColumnIds();
+	auto filters = state.GetFilters();
+	auto parent_max_row = state.GetParentMaxRow();
+	if (filters) {
+		if (!CheckZonemap(*filters, column_ids)) {
 			return false;
 		}
 	}
 	state.row_group = this;
 	state.vector_index = 0;
-	state.max_row =
-	    this->start > state.parent.max_row ? 0 : MinValue<idx_t>(this->count, state.parent.max_row - this->start); // 此处start > state.parent.max_row是否是因为竞争的关系导致的
+	state.max_row = this->start > parent_max_row ? 0 : MinValue<idx_t>(this->count, parent_max_row - this->start);
 	state.column_scans = unique_ptr<ColumnScanState[]>(new ColumnScanState[column_ids.size()]);
 	for (idx_t i = 0; i < column_ids.size(); i++) {
 		auto column = column_ids[i];
@@ -109,8 +111,8 @@ bool RowGroup::InitializeScan(RowGroupScanState &state) {
 	return true;
 }
 
-unique_ptr<RowGroup> RowGroup::AlterType(ClientContext &context, const LogicalType &target_type, idx_t changed_idx,
-                                         ExpressionExecutor &executor, TableScanState &scan_state,
+unique_ptr<RowGroup> RowGroup::AlterType(const LogicalType &target_type, idx_t changed_idx,
+                                         ExpressionExecutor &executor, RowGroupScanState &scan_state,
                                          DataChunk &scan_chunk) {
 	Verify();
 
@@ -121,14 +123,14 @@ unique_ptr<RowGroup> RowGroup::AlterType(ClientContext &context, const LogicalTy
 	column_data->InitializeAppend(append_state);
 
 	// scan the original table, and fill the new column with the transformed value
-	InitializeScan(scan_state.row_group_scan_state);
+	InitializeScan(scan_state);
 
 	Vector append_vector(target_type);
 	auto altered_col_stats = make_shared<SegmentStatistics>(target_type);
 	while (true) {
 		// scan the table
 		scan_chunk.Reset();
-		ScanCommitted(scan_state.row_group_scan_state, scan_chunk, TableScanType::TABLE_SCAN_COMMITTED_ROWS);
+		ScanCommitted(scan_state, scan_chunk, TableScanType::TABLE_SCAN_COMMITTED_ROWS);
 		if (scan_chunk.size() == 0) {
 			break;
 		}
@@ -155,8 +157,8 @@ unique_ptr<RowGroup> RowGroup::AlterType(ClientContext &context, const LogicalTy
 	return row_group;
 }
 
-unique_ptr<RowGroup> RowGroup::AddColumn(ClientContext &context, ColumnDefinition &new_column,
-                                         ExpressionExecutor &executor, Expression *default_value, Vector &result) {
+unique_ptr<RowGroup> RowGroup::AddColumn(ColumnDefinition &new_column, ExpressionExecutor &executor,
+                                         Expression *default_value, Vector &result) {
 	Verify();
 
 	// construct a new column data for the new column
@@ -223,8 +225,9 @@ void RowGroup::CommitDropColumn(idx_t column_idx) {
 
 void RowGroup::NextVector(RowGroupScanState &state) {
 	state.vector_index++;
-	for (idx_t i = 0; i < state.parent.column_ids.size(); i++) {
-		auto column = state.parent.column_ids[i];
+	auto &column_ids = state.GetColumnIds();
+	for (idx_t i = 0; i < column_ids.size(); i++) {
+		auto column = column_ids[i];
 		if (column == COLUMN_IDENTIFIER_ROW_ID) {
 			continue;
 		}
@@ -249,11 +252,12 @@ bool RowGroup::CheckZonemap(TableFilterSet &filters, const vector<column_t> &col
 }
 
 bool RowGroup::CheckZonemapSegments(RowGroupScanState &state) {
-	if (!state.parent.table_filters) { // 没有过滤器，则true，看起来合理的样子
+	auto &column_ids = state.GetColumnIds();
+	auto filters = state.GetFilters();
+	if (!filters) {
 		return true;
 	}
-	auto &column_ids = state.parent.column_ids;
-	for (auto &entry : state.parent.table_filters->filters) {
+	for (auto &entry : filters->filters) {
 		D_ASSERT(entry.first < column_ids.size());
 		auto column_idx = entry.first;
 		auto base_column_idx = column_ids[column_idx];
@@ -285,12 +289,12 @@ bool RowGroup::CheckZonemapSegments(RowGroupScanState &state) {
 
 // 做扫描
 template <TableScanType TYPE>
-void RowGroup::TemplatedScan(Transaction *transaction, RowGroupScanState &state, DataChunk &result) {
+void RowGroup::TemplatedScan(TransactionData transaction, RowGroupScanState &state, DataChunk &result) {
 	const bool ALLOW_UPDATES = TYPE != TableScanType::TABLE_SCAN_COMMITTED_ROWS_DISALLOW_UPDATES &&
 	                           TYPE != TableScanType::TABLE_SCAN_COMMITTED_ROWS_OMIT_PERMANENTLY_DELETED;
-	auto &table_filters = state.parent.table_filters;
-	auto &column_ids = state.parent.column_ids;
-	auto &adaptive_filter = state.parent.adaptive_filter;
+	auto table_filters = state.GetFilters();
+	auto &column_ids = state.GetColumnIds();
+	auto adaptive_filter = state.GetAdaptiveFilter();
 	while (true) {
 		if (state.vector_index * STANDARD_VECTOR_SIZE >= state.max_row) {
 			// exceeded the amount of rows to scan
@@ -307,14 +311,14 @@ void RowGroup::TemplatedScan(Transaction *transaction, RowGroupScanState &state,
 		idx_t count;
 		SelectionVector valid_sel(STANDARD_VECTOR_SIZE);
 		if (TYPE == TableScanType::TABLE_SCAN_REGULAR) {
-			D_ASSERT(transaction);
-			count = state.row_group->GetSelVector(*transaction, state.vector_index, valid_sel, max_count);
+			count = state.row_group->GetSelVector(transaction, state.vector_index, valid_sel, max_count);
 			if (count == 0) {
 				// nothing to scan for this vector, skip the entire vector
 				NextVector(state);
 				continue;
 			}
 		} else if (TYPE == TableScanType::TABLE_SCAN_COMMITTED_ROWS_OMIT_PERMANENTLY_DELETED) {
+<<<<<<< HEAD
 			// 创建索引时会是这种类型的table scan,会忽略掉所以不会再被看到的已经删除的记录
             auto &transaction_manager = TransactionManager::Get(db);
 			auto lowest_active_start = transaction_manager.LowestActiveStart();
@@ -322,6 +326,10 @@ void RowGroup::TemplatedScan(Transaction *transaction, RowGroupScanState &state,
 
 			count = state.row_group->GetCommittedSelVector(lowest_active_start, lowest_active_id, state.vector_index,
 			                                               valid_sel, max_count);
+=======
+			count = state.row_group->GetCommittedSelVector(transaction.start_time, transaction.transaction_id,
+			                                               state.vector_index, valid_sel, max_count);
+>>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
 			if (count == 0) {
 				// nothing to scan for this vector, skip the entire vector
 				NextVector(state);
@@ -338,7 +346,7 @@ void RowGroup::TemplatedScan(Transaction *transaction, RowGroupScanState &state,
 				if (column == COLUMN_IDENTIFIER_ROW_ID) { // 如果是row id type，则通过sequence生成row id
 					// scan row id
 					D_ASSERT(result.data[i].GetType().InternalType() == ROW_TYPE);
-					result.data[i].Sequence(this->start + current_row, 1);
+					result.data[i].Sequence(this->start + current_row, 1, count);
 				} else {
                     // 不是常规扫描，这种情况下扫描已提交的数据
                     // 获取出来的数据不一定是已经提交的，但是会通过选择子来保证
@@ -346,9 +354,13 @@ void RowGroup::TemplatedScan(Transaction *transaction, RowGroupScanState &state,
 						columns[column]->ScanCommitted(state.vector_index, state.column_scans[i], result.data[i],
 						                               ALLOW_UPDATES);
 					} else {
+<<<<<<< HEAD
 						D_ASSERT(transaction);
                         // 正常的扫描，会通过update info将数据回滚到一个可见的version
 						columns[column]->Scan(*transaction, state.vector_index, state.column_scans[i], result.data[i]);
+=======
+						columns[column]->Scan(transaction, state.vector_index, state.column_scans[i], result.data[i]);
+>>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
 					}
 				}
 			}
@@ -363,13 +375,19 @@ void RowGroup::TemplatedScan(Transaction *transaction, RowGroupScanState &state,
 			}
 			//! first, we scan the columns with filters, fetch their data and generate a selection vector.
 			//! get runtime statistics
+<<<<<<< HEAD
 			auto start_time = high_resolution_clock::now(); // 这是做统计数据吗？
 			if (table_filters) { // 如果存在过滤器
+=======
+			auto start_time = high_resolution_clock::now();
+			if (table_filters) {
+				D_ASSERT(adaptive_filter);
+>>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
 				D_ASSERT(ALLOW_UPDATES);
 				for (idx_t i = 0; i < table_filters->filters.size(); i++) {
 					auto tf_idx = adaptive_filter->permutation[i];
 					auto col_idx = column_ids[tf_idx];
-					columns[col_idx]->Select(*transaction, state.vector_index, state.column_scans[tf_idx],
+					columns[col_idx]->Select(transaction, state.vector_index, state.column_scans[tf_idx],
 					                         result.data[tf_idx], sel, approved_tuple_count,
 					                         *table_filters->filters[tf_idx]);
 				}
@@ -408,12 +426,19 @@ void RowGroup::TemplatedScan(Transaction *transaction, RowGroupScanState &state,
 							result_data[sel_idx] = this->start + current_row + sel.get_index(sel_idx);
 						}
 					} else {
+<<<<<<< HEAD
 						if (TYPE == TableScanType::TABLE_SCAN_REGULAR) { // 如果是正常扫描
 							D_ASSERT(transaction);
 							columns[column]->FilterScan(*transaction, state.vector_index, state.column_scans[i],
 							                            result.data[i], sel, approved_tuple_count);
 						} else {
 							D_ASSERT(!transaction); // 这种情况transaction是nullptr
+=======
+						if (TYPE == TableScanType::TABLE_SCAN_REGULAR) {
+							columns[column]->FilterScan(transaction, state.vector_index, state.column_scans[i],
+							                            result.data[i], sel, approved_tuple_count);
+						} else {
+>>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
 							columns[column]->FilterScanCommitted(state.vector_index, state.column_scans[i],
 							                                     result.data[i], sel, approved_tuple_count,
 							                                     ALLOW_UPDATES);
@@ -434,23 +459,32 @@ void RowGroup::TemplatedScan(Transaction *transaction, RowGroupScanState &state,
 	}
 }
 
+<<<<<<< HEAD
 // 正常扫描数据
 void RowGroup::Scan(Transaction &transaction, RowGroupScanState &state, DataChunk &result) {
 	TemplatedScan<TableScanType::TABLE_SCAN_REGULAR>(&transaction, state, result);
+=======
+void RowGroup::Scan(TransactionData transaction, RowGroupScanState &state, DataChunk &result) {
+	TemplatedScan<TableScanType::TABLE_SCAN_REGULAR>(transaction, state, result);
+>>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
 }
 
 // 扫描已提交数据
 // 这些都不需要传transaction
 void RowGroup::ScanCommitted(RowGroupScanState &state, DataChunk &result, TableScanType type) {
+	auto &transaction_manager = TransactionManager::Get(db);
+	auto lowest_active_start = transaction_manager.LowestActiveStart();
+	auto lowest_active_id = transaction_manager.LowestActiveId();
+	TransactionData data(lowest_active_id, lowest_active_start);
 	switch (type) {
 	case TableScanType::TABLE_SCAN_COMMITTED_ROWS:
-		TemplatedScan<TableScanType::TABLE_SCAN_COMMITTED_ROWS>(nullptr, state, result);
+		TemplatedScan<TableScanType::TABLE_SCAN_COMMITTED_ROWS>(data, state, result);
 		break;
 	case TableScanType::TABLE_SCAN_COMMITTED_ROWS_DISALLOW_UPDATES:
-		TemplatedScan<TableScanType::TABLE_SCAN_COMMITTED_ROWS_DISALLOW_UPDATES>(nullptr, state, result);
+		TemplatedScan<TableScanType::TABLE_SCAN_COMMITTED_ROWS_DISALLOW_UPDATES>(data, state, result);
 		break;
 	case TableScanType::TABLE_SCAN_COMMITTED_ROWS_OMIT_PERMANENTLY_DELETED:
-		TemplatedScan<TableScanType::TABLE_SCAN_COMMITTED_ROWS_OMIT_PERMANENTLY_DELETED>(nullptr, state, result);
+		TemplatedScan<TableScanType::TABLE_SCAN_COMMITTED_ROWS_OMIT_PERMANENTLY_DELETED>(data, state, result);
 		break;
 	default:
 		throw InternalException("Unrecognized table scan type");
@@ -464,7 +498,8 @@ ChunkInfo *RowGroup::GetChunkInfo(idx_t vector_idx) {
 	return version_info->info[vector_idx].get();
 }
 
-idx_t RowGroup::GetSelVector(Transaction &transaction, idx_t vector_idx, SelectionVector &sel_vector, idx_t max_count) {
+idx_t RowGroup::GetSelVector(TransactionData transaction, idx_t vector_idx, SelectionVector &sel_vector,
+                             idx_t max_count) {
 	lock_guard<mutex> lock(row_group_lock);
 
 	auto info = GetChunkInfo(vector_idx);
@@ -485,8 +520,13 @@ idx_t RowGroup::GetCommittedSelVector(transaction_t start_time, transaction_t tr
 	return info->GetCommittedSelVector(start_time, transaction_id, sel_vector, max_count);
 }
 
+<<<<<<< HEAD
 bool RowGroup::Fetch(Transaction &transaction, idx_t row) {
 	D_ASSERT(row < this->count); // row = row_id - start， 其实是一个偏移量
+=======
+bool RowGroup::Fetch(TransactionData transaction, idx_t row) {
+	D_ASSERT(row < this->count);
+>>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
 	lock_guard<mutex> lock(row_group_lock);
 
 	idx_t vector_index = row / STANDARD_VECTOR_SIZE;
@@ -497,7 +537,7 @@ bool RowGroup::Fetch(Transaction &transaction, idx_t row) {
 	return info->Fetch(transaction, row - vector_index * STANDARD_VECTOR_SIZE);
 }
 
-void RowGroup::FetchRow(Transaction &transaction, ColumnFetchState &state, const vector<column_t> &column_ids,
+void RowGroup::FetchRow(TransactionData transaction, ColumnFetchState &state, const vector<column_t> &column_ids,
                         row_t row_id, DataChunk &result, idx_t result_idx) {
 	for (idx_t col_idx = 0; col_idx < column_ids.size(); col_idx++) {
 		auto column = column_ids[col_idx]; // 需要Fetch哪些列
@@ -514,8 +554,13 @@ void RowGroup::FetchRow(Transaction &transaction, ColumnFetchState &state, const
 		}
 	}
 }
+<<<<<<< HEAD
 // weng: AppendVersionInfo(transaction, this->count, append_count, transaction.transaction_id);
 void RowGroup::AppendVersionInfo(Transaction &transaction, idx_t row_group_start, idx_t count,
+=======
+
+void RowGroup::AppendVersionInfo(TransactionData transaction, idx_t row_group_start, idx_t count,
+>>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
                                  transaction_t commit_id) {
 	idx_t row_group_end = row_group_start + count; // 计算结尾位置
 	lock_guard<mutex> lock(row_group_lock); // 加row_group_lock
@@ -594,8 +639,12 @@ void RowGroup::RevertAppend(idx_t row_group_start) {
 	Verify();
 }
 
+<<<<<<< HEAD
 // 每次都会添加版本信息
 void RowGroup::InitializeAppend(Transaction &transaction, RowGroupAppendState &append_state,
+=======
+void RowGroup::InitializeAppend(TransactionData transaction, RowGroupAppendState &append_state,
+>>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
                                 idx_t remaining_append_count) {
 	append_state.row_group = this;
 	append_state.offset_in_row_group = this->count; // 在row_group中的偏移量
@@ -616,8 +665,13 @@ void RowGroup::Append(RowGroupAppendState &state, DataChunk &chunk, idx_t append
 	}
 	state.offset_in_row_group += append_count;
 }
+<<<<<<< HEAD
 // Update会在ColumData里面去检测冲突
 void RowGroup::Update(Transaction &transaction, DataChunk &update_chunk, row_t *ids, idx_t offset, idx_t count,
+=======
+
+void RowGroup::Update(TransactionData transaction, DataChunk &update_chunk, row_t *ids, idx_t offset, idx_t count,
+>>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
                       const vector<column_t> &column_ids) {
 #ifdef DEBUG
 	for (size_t i = offset; i < offset + count; i++) {
@@ -640,7 +694,7 @@ void RowGroup::Update(Transaction &transaction, DataChunk &update_chunk, row_t *
 	}
 }
 
-void RowGroup::UpdateColumn(Transaction &transaction, DataChunk &updates, Vector &row_ids,
+void RowGroup::UpdateColumn(TransactionData transaction, DataChunk &updates, Vector &row_ids,
                             const vector<column_t> &column_path) {
 	D_ASSERT(updates.ColumnCount() == 1);
 	auto ids = FlatVector::GetData<row_t>(row_ids);
@@ -822,13 +876,13 @@ void RowGroup::GetStorageInfo(idx_t row_group_index, vector<vector<Value>> &resu
 //===--------------------------------------------------------------------===//
 class VersionDeleteState {
 public:
-	VersionDeleteState(RowGroup &info, Transaction &transaction, DataTable *table, idx_t base_row)
+	VersionDeleteState(RowGroup &info, TransactionData transaction, DataTable *table, idx_t base_row)
 	    : info(info), transaction(transaction), table(table), current_info(nullptr),
 	      current_chunk(DConstants::INVALID_INDEX), count(0), base_row(base_row), delete_count(0) {
 	}
 
 	RowGroup &info;
-	Transaction &transaction;
+	TransactionData transaction;
 	DataTable *table;
 	ChunkVectorInfo *current_info;
 	idx_t current_chunk;
@@ -843,8 +897,13 @@ public:
 	void Flush();
 };
 
+<<<<<<< HEAD
 idx_t RowGroup::Delete(Transaction &transaction, DataTable *table, row_t *ids, idx_t count) {
 	lock_guard<mutex> lock(row_group_lock); // 加row_group_lock
+=======
+idx_t RowGroup::Delete(TransactionData transaction, DataTable *table, row_t *ids, idx_t count) {
+	lock_guard<mutex> lock(row_group_lock);
+>>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
 	VersionDeleteState del_state(*this, transaction, table, this->start);
 
 	// obtain a write lock
@@ -902,15 +961,14 @@ void VersionDeleteState::Flush() {
 	if (count == 0) {
 		return;
 	}
-	// delete in the current info
 	// it is possible for delete statements to delete the same tuple multiple times when combined with a USING clause
 	// in the current_info->Delete, we check which tuples are actually deleted (excluding duplicate deletions)
 	// this is returned in the actual_delete_count
-	auto actual_delete_count = current_info->Delete(transaction, rows, count);
+	auto actual_delete_count = current_info->Delete(transaction.transaction_id, rows, count);
 	delete_count += actual_delete_count;
-	if (actual_delete_count > 0) {
+	if (transaction.transaction && actual_delete_count > 0) {
 		// now push the delete into the undo buffer, but only if any deletes were actually performed
-		transaction.PushDelete(table, current_info, rows, actual_delete_count, base_row + chunk_row);
+		transaction.transaction->PushDelete(table, current_info, rows, actual_delete_count, base_row + chunk_row);
 	}
 	count = 0;
 }

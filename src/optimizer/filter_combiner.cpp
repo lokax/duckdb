@@ -583,7 +583,14 @@ FilterResult FilterCombiner::AddBoundComparisonFilter(Expression *expr) {
 		auto node = GetNode(left_is_scalar ? comparison.right.get() : comparison.left.get());
 		idx_t equivalence_set = GetEquivalenceSet(node);
 		auto scalar = left_is_scalar ? comparison.left.get() : comparison.right.get();
+<<<<<<< HEAD
 		auto constant_value = ExpressionExecutor::EvaluateScalar(*scalar); // 计算结果是什么
+=======
+		Value constant_value;
+		if (!ExpressionExecutor::TryEvaluateScalar(*scalar, constant_value)) {
+			return FilterResult::UNSATISFIABLE;
+		}
+>>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
 		if (constant_value.IsNull()) {
 			// comparisons with null are always null (i.e. will never result in rows)
 			return FilterResult::UNSATISFIABLE;
@@ -664,7 +671,11 @@ FilterResult FilterCombiner::AddFilter(Expression *expr) {
 	}
 	if (expr->IsFoldable()) {
 		// scalar condition, evaluate it
-		auto result = ExpressionExecutor::EvaluateScalar(*expr).CastAs(LogicalType::BOOLEAN);
+		Value result;
+		if (!ExpressionExecutor::TryEvaluateScalar(*expr, result)) {
+			return FilterResult::UNSUPPORTED;
+		}
+		result = result.DefaultCastAs(LogicalType::BOOLEAN);
 		// check if the filter passes
 		if (result.IsNull() || !BooleanValue::Get(result)) {
 			// the filter does not pass the scalar test, create an empty result
@@ -688,7 +699,10 @@ FilterResult FilterCombiner::AddFilter(Expression *expr) {
 
 			if (lower_is_scalar) {
 				auto scalar = comparison.lower.get();
-				auto constant_value = ExpressionExecutor::EvaluateScalar(*scalar);
+				Value constant_value;
+				if (!ExpressionExecutor::TryEvaluateScalar(*scalar, constant_value)) {
+					return FilterResult::UNSUPPORTED;
+				}
 
 				// create the ExpressionValueInformation
 				ExpressionValueInformation info;
@@ -721,7 +735,10 @@ FilterResult FilterCombiner::AddFilter(Expression *expr) {
 
 			if (upper_is_scalar) {
 				auto scalar = comparison.upper.get();
-				auto constant_value = ExpressionExecutor::EvaluateScalar(*scalar);
+				Value constant_value;
+				if (!ExpressionExecutor::TryEvaluateScalar(*scalar, constant_value)) {
+					return FilterResult::UNSUPPORTED;
+				}
 
 				// create the ExpressionValueInformation
 				ExpressionValueInformation info;

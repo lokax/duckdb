@@ -297,6 +297,7 @@ void PhysicalNestedLoopJoin::ResolveSimpleJoin(ExecutionContext &context, DataCh
 
     // 计算join key
 	// resolve the left join condition for the current chunk
+	state.left_condition.Reset();
 	state.lhs_executor.Execute(input, state.left_condition);
     // 创建found match数组
 	bool found_match[STANDARD_VECTOR_SIZE] = {false};

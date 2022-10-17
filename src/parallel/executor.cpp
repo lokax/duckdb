@@ -28,6 +28,9 @@ Executor &Executor::Get(ClientContext &context) {
 
 void Executor::AddEvent(shared_ptr<Event> event) {
 	lock_guard<mutex> elock(executor_lock);
+	if (cancelled) {
+		return;
+	}
 	events.push_back(move(event));
 }
 
@@ -64,6 +67,7 @@ void Executor::SchedulePipeline(const shared_ptr<Pipeline> &pipeline, ScheduleEv
 	auto &event_map = event_data.event_map;
 	auto &events = event_data.events;
 	auto &union_pipelines = event_data.union_pipelines;
+    // 会反转operator,operator越后代表越往下面，所以这里面需要反转一下
 	pipeline->Ready();
 
 	auto pipeline_event = make_shared<PipelineEvent>(pipeline);
@@ -83,6 +87,7 @@ void Executor::SchedulePipeline(const shared_ptr<Pipeline> &pipeline, ScheduleEv
 		stack.pipeline_finish_event = parent_stack.pipeline_finish_event;
 		stack.pipeline_complete_event = parent_stack.pipeline_complete_event;
         // 先运行父亲的pipeline_event再运行当前的pipeline_event
+        // Union的情况下，这里为什么要进行依赖呢?
 		stack.pipeline_event->AddDependency(*parent_stack.pipeline_event);
 		parent_stack.pipeline_finish_event->AddDependency(*pipeline_event);
 	} else {
@@ -103,7 +108,7 @@ void Executor::SchedulePipeline(const shared_ptr<Pipeline> &pipeline, ScheduleEv
 
 	events.push_back(move(pipeline_event));
 	event_map.insert(make_pair(pipeline.get(), stack));
-
+    // 保存当前的pipeline为被调度的pipeline
 	scheduled_pipelines.push_back(pipeline.get());
 	auto union_entry = union_pipelines.find(pipeline.get());
 	if (union_entry != union_pipelines.end()) {
@@ -129,6 +134,7 @@ void Executor::ScheduleChildPipeline(Pipeline *parent, const shared_ptr<Pipeline
 	D_ASSERT(parent_entry != event_map.end());
 
 	PipelineEventStack stack;
+    // 新的pipeline event
 	stack.pipeline_event = pipeline_event.get();
     // 同一条流水线
 	stack.pipeline_finish_event = parent_entry->second.pipeline_finish_event;
@@ -141,6 +147,7 @@ void Executor::ScheduleChildPipeline(Pipeline *parent, const shared_ptr<Pipeline
 	remaining_pipelines.push_back(parent);
 	for (idx_t i = 0; i < remaining_pipelines.size(); i++) {
 		auto dep = remaining_pipelines[i]; // 一开始这东西是parent
+        // 注意这里有哈希表检查重复的情况
 		if (already_scheduled.find(dep) != already_scheduled.end()) {
 			continue;
 		}
@@ -149,6 +156,7 @@ void Executor::ScheduleChildPipeline(Pipeline *parent, const shared_ptr<Pipeline
 
 		auto dep_scheduled = event_data.scheduled_pipelines.find(dep);
 		if (dep_scheduled != event_data.scheduled_pipelines.end()) {
+            // 假设是union的话，这里会得到两个，一个应该和dep一样,另一个是union pipeline
 			for (auto &next_dep : dep_scheduled->second) {
 				remaining_pipelines.push_back(next_dep);
 			}
@@ -163,7 +171,8 @@ void Executor::ScheduleChildPipeline(Pipeline *parent, const shared_ptr<Pipeline
 		stack.pipeline_event->AddDependency(*dep_entry->second.pipeline_event);
 		if (finish_events.find(finish_event) == finish_events.end()) {
 			finish_event->AddDependency(*stack.pipeline_event);
-			finish_events.insert(finish_event); // 插入到哈希表中
+			finish_events.insert(finish_event); 
+            // 插入到哈希表中
 		}
 
 		event_data.scheduled_pipelines[dep].push_back(child_ptr);
@@ -178,7 +187,9 @@ void Executor::ScheduleEventsInternal(ScheduleEventData &event_data) {
 	D_ASSERT(events.empty());
 	// create all the required pipeline events
 	auto &event_map = event_data.event_map;
+    // 遍历每一个独立的pipeline
 	for (auto &pipeline : event_data.pipelines) {
+        // 保存被调度的pipeline
 		vector<Pipeline *> scheduled_pipelines;
 		SchedulePipeline(pipeline, event_data, scheduled_pipelines);
 
@@ -336,6 +347,7 @@ void Executor::CancelTasks() {
 	vector<weak_ptr<Pipeline>> weak_references;
 	{
 		lock_guard<mutex> elock(executor_lock);
+		cancelled = true;
 		weak_references.reserve(pipelines.size());
 		for (auto &pipeline : pipelines) {
 			weak_references.push_back(weak_ptr<Pipeline>(pipeline));
@@ -412,10 +424,14 @@ PendingExecutionResult Executor::ExecuteTask() {
 	lock_guard<mutex> elock(executor_lock);
 	pipelines.clear(); // pipeline不需要了
 	NextExecutor();
-	if (!exceptions.empty()) { // LCOV_EXCL_START
+	if (HasError()) { // LCOV_EXCL_START
 		// an exception has occurred executing one of the pipelines
 		execution_result = PendingExecutionResult::EXECUTION_ERROR;
+<<<<<<< HEAD
 		ThrowExceptionInternal(); // 这里不需要加锁
+=======
+		ThrowException();
+>>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
 	} // LCOV_EXCL_STOP
 	execution_result = PendingExecutionResult::RESULT_READY;
 	return execution_result;
@@ -424,6 +440,7 @@ PendingExecutionResult Executor::ExecuteTask() {
 void Executor::Reset() {
 	lock_guard<mutex> elock(executor_lock);
 	physical_plan = nullptr;
+	cancelled = false;
 	owned_plan.reset();
 	root_executor.reset();
 	root_pipelines.clear();
@@ -442,25 +459,32 @@ void Executor::AddChildPipeline(Pipeline *current) {
 	D_ASSERT(!current->operators.empty());
 	// found another operator that is a source
 	// schedule a child pipeline
+    // 创建新的pipeline
 	auto child_pipeline = make_shared<Pipeline>(*this);
+    // 孩子的sink是当前的sink，这个很好理解，对于右外连接而言，除了probe的数据要push给sink算子以外
+    // GetData的数据也要push给sink算子
+    // sink算子和operator算子一样
 	child_pipeline->sink = current->sink;
 	child_pipeline->operators = current->operators;
+    // source是最后一个operator，比如是右外连接的话，这时候最后一个operator就是hash join
+    // operator越往后，就是越往下吧?
 	child_pipeline->source = current->operators.back();
 	D_ASSERT(child_pipeline->source->IsSource());
+    // 弹走最后一个operator
 	child_pipeline->operators.pop_back();
-
+    // 这个dependence的代码好像是dead code，可以移除掉吧？
 	vector<Pipeline *> dependencies;
 	dependencies.push_back(current);
 	child_pipelines[current].push_back(move(child_pipeline));
 }
-
+// 返回物理类型
 vector<LogicalType> Executor::GetTypes() {
 	D_ASSERT(physical_plan);
 	return physical_plan->GetTypes();
 }
 
 void Executor::PushError(PreservedError exception) {
-	lock_guard<mutex> elock(executor_lock);
+	lock_guard<mutex> elock(error_lock);
 	// interrupt execution of any other pipelines that belong to this executor
 	context.interrupted = true;
 	// push the exception onto the stack
@@ -468,20 +492,16 @@ void Executor::PushError(PreservedError exception) {
 }
 
 bool Executor::HasError() {
-	lock_guard<mutex> elock(executor_lock);
+	lock_guard<mutex> elock(error_lock);
 	return !exceptions.empty();
 }
 
 void Executor::ThrowException() {
-	lock_guard<mutex> elock(executor_lock);
-	ThrowExceptionInternal();
-}
-
-void Executor::ThrowExceptionInternal() { // LCOV_EXCL_START
+	lock_guard<mutex> elock(error_lock);
 	D_ASSERT(!exceptions.empty());
 	auto &entry = exceptions[0];
 	entry.Throw();
-} // LCOV_EXCL_STOP
+}
 
 void Executor::Flush(ThreadContext &tcontext) {
 	profiler->Flush(tcontext.profiler);

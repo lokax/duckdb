@@ -34,6 +34,7 @@ static inline void TightLoopHash(T *__restrict ldata, hash_t *__restrict result_
 			result_data[ridx] = HashOp::Operation(ldata[idx], !mask.RowIsValid(idx));
 		}
 	} else {
+        // 如果数据全部有效, 这里能够向量化
 		for (idx_t i = 0; i < count; i++) {
 			auto ridx = HAS_RSEL ? rsel->get_index(i) : i;
 			auto idx = sel_vector->get_index(ridx);
@@ -44,6 +45,7 @@ static inline void TightLoopHash(T *__restrict ldata, hash_t *__restrict result_
 
 template <bool HAS_RSEL, class T>
 static inline void TemplatedLoopHash(Vector &input, Vector &result, const SelectionVector *rsel, idx_t count) {
+    // 常量向量
 	if (input.GetVectorType() == VectorType::CONSTANT_VECTOR) {
 		result.SetVectorType(VectorType::CONSTANT_VECTOR);
 
@@ -63,12 +65,14 @@ static inline void TemplatedLoopHash(Vector &input, Vector &result, const Select
 
 template <bool HAS_RSEL, bool FIRST_HASH>
 static inline void StructLoopHash(Vector &input, Vector &hashes, const SelectionVector *rsel, idx_t count) {
+    // 拿出孩子
 	auto &children = StructVector::GetEntries(input);
 
 	D_ASSERT(!children.empty());
 	idx_t col_no = 0;
 	if (HAS_RSEL) {
 		if (FIRST_HASH) {
+            // 计算第一个孩子的哈希
 			VectorOperations::Hash(*children[col_no++], hashes, *rsel, count);
 		} else {
 			VectorOperations::CombineHash(hashes, *children[col_no++], *rsel, count);
@@ -101,6 +105,7 @@ static inline void ListLoopHash(Vector &input, Vector &hashes, const SelectionVe
 	const auto child_count = ListVector::GetListSize(input);
 
 	Vector child_hashes(LogicalType::HASH, child_count);
+    // 对孩子进行哈希
 	VectorOperations::Hash(child, child_hashes, child_count);
 	auto chdata = FlatVector::GetData<hash_t>(child_hashes);
 
@@ -116,6 +121,7 @@ static inline void ListLoopHash(Vector &input, Vector &hashes, const SelectionVe
 			unprocessed.set_index(remaining++, ridx);
 			cursor.set_index(ridx, entry.offset);
 		} else if (FIRST_HASH) {
+            // 如果不是combineHash的话，这里就会存NULL_HASH
 			hdata[ridx] = HashOp::NULL_HASH;
 		}
 		// Empty or NULL non-first elements have no effect.
@@ -130,14 +136,17 @@ static inline void ListLoopHash(Vector &input, Vector &hashes, const SelectionVe
 	idx_t position = 1;
 	if (FIRST_HASH) {
 		remaining = 0;
+        // 遍历每一条数据
 		for (idx_t i = 0; i < count; ++i) {
 			const auto ridx = unprocessed.get_index(i);
+            // cidx是enttry.offset?
 			const auto cidx = cursor.get_index(ridx);
 			hdata[ridx] = chdata[cidx];
 
 			const auto lidx = idata.sel->get_index(ridx);
 			const auto &entry = ldata[lidx];
 			if (entry.length > position) {
+                // 移动偏移量
 				// Entry still has values to hash
 				unprocessed.set_index(remaining++, ridx);
 				cursor.set_index(ridx, cidx + 1);
@@ -156,6 +165,7 @@ static inline void ListLoopHash(Vector &input, Vector &hashes, const SelectionVe
 		for (idx_t i = 0; i < count; ++i) {
 			const auto ridx = unprocessed.get_index(i);
 			const auto cidx = cursor.get_index(ridx);
+            // 合并哈希
 			hdata[ridx] = CombineHashScalar(hdata[ridx], chdata[cidx]);
 
 			const auto lidx = idata.sel->get_index(ridx);

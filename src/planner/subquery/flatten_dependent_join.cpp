@@ -542,6 +542,9 @@ unique_ptr<LogicalOperator> FlattenDependentJoins::PushDownDependentJoinInternal
         // 直接处理孩子
 		plan->children[0] = PushDownDependentJoin(move(plan->children[0]));
 		return plan;
+	case LogicalOperatorType::LOGICAL_RECURSIVE_CTE: {
+		throw ParserException("Recursive CTEs not supported in correlated subquery");
+	}
 	default:
 		throw InternalException("Logical operator type \"%s\" for dependent join", LogicalOperatorToString(plan->type));
 	}

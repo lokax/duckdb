@@ -20,8 +20,9 @@ void PhysicalUnion::BuildPipelines(Executor &executor, Pipeline &current, Pipeli
 	}
 	op_state.reset();
 	sink_state.reset();
-
+    // 构建一个union pipeline
 	auto union_pipeline = make_shared<Pipeline>(executor);
+    // 拿出裸指针
 	auto pipeline_ptr = union_pipeline.get();
 	auto &union_pipelines = state.GetUnionPipelines(executor);
 	// for the current pipeline, continue building on the LHS
@@ -34,6 +35,7 @@ void PhysicalUnion::BuildPipelines(Executor &executor, Pipeline &current, Pipeli
 	// for the union pipeline, build on the RHS
     // union pipeline和current pipeline同一个sink
 	state.SetPipelineSink(*pipeline_ptr, state.GetPipelineSink(current));
+    // 为新的pipeline进行构建
 	children[1]->BuildPipelines(executor, *pipeline_ptr, state);
 }
 

@@ -41,8 +41,12 @@ unique_ptr<Expression> ConjunctionSimplificationRule::Apply(LogicalOperator &op,
 	if (!ExpressionExecutor::TryEvaluateScalar(*constant_expr, constant_value)) {
 		return nullptr;
 	}
+<<<<<<< HEAD
 	constant_value = constant_value.CastAs(LogicalType::BOOLEAN);
 
+=======
+	constant_value = constant_value.DefaultCastAs(LogicalType::BOOLEAN);
+>>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
 	if (constant_value.IsNull()) {
 		// we can't simplify conjunctions with a constant NULL
 		return nullptr;

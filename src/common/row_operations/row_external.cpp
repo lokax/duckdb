@@ -13,29 +13,39 @@ namespace duckdb {
 using ValidityBytes = RowLayout::ValidityBytes;
 
 void RowOperations::SwizzleColumns(const RowLayout &layout, const data_ptr_t base_row_ptr, const idx_t count) {
+    // 行的宽度
 	const idx_t row_width = layout.GetRowWidth();
 	data_ptr_t heap_row_ptrs[STANDARD_VECTOR_SIZE];
 	idx_t done = 0;
+    // 只要还有数据没有完成
 	while (done != count) {
 		const idx_t next = MinValue<idx_t>(count - done, STANDARD_VECTOR_SIZE);
+        // 行的起始位置
 		const data_ptr_t row_ptr = base_row_ptr + done * row_width;
+        // 拿出堆指针的位置
 		// Load heap row pointers
 		data_ptr_t heap_ptr_ptr = row_ptr + layout.GetHeapOffset();
+        // 遍历每一条数据
 		for (idx_t i = 0; i < next; i++) {
+            // 保存堆指针值
 			heap_row_ptrs[i] = Load<data_ptr_t>(heap_ptr_ptr);
 			heap_ptr_ptr += row_width;
 		}
+        // 遍历每一列
 		// Loop through the blob columns
 		for (idx_t col_idx = 0; col_idx < layout.ColumnCount(); col_idx++) {
+            // 如果是常量类型，直接跳过，不用处理
 			auto physical_type = layout.GetTypes()[col_idx].InternalType();
 			if (TypeIsConstantSize(physical_type)) {
 				continue;
 			}
+            // 拿出列所在的指针
 			data_ptr_t col_ptr = row_ptr + layout.GetOffsets()[col_idx];
 			if (physical_type == PhysicalType::VARCHAR) {
 				data_ptr_t string_ptr = col_ptr + sizeof(uint32_t) + string_t::PREFIX_LENGTH;
 				for (idx_t i = 0; i < next; i++) {
 					if (Load<uint32_t>(col_ptr) > string_t::INLINE_LENGTH) {
+                        // 存的是行内偏移量
 						// Overwrite the string pointer with the within-row offset (if not inlined)
 						Store<idx_t>(Load<data_ptr_t>(string_ptr) - heap_row_ptrs[i], string_ptr);
 					}
@@ -57,12 +67,14 @@ void RowOperations::SwizzleColumns(const RowLayout &layout, const data_ptr_t bas
 
 void RowOperations::SwizzleHeapPointer(const RowLayout &layout, data_ptr_t row_ptr, const data_ptr_t heap_base_ptr,
                                        const idx_t count, const idx_t base_offset) {
+    // 获得行的宽度
 	const idx_t row_width = layout.GetRowWidth();
 	row_ptr += layout.GetHeapOffset();
 	idx_t cumulative_offset = 0;
 	for (idx_t i = 0; i < count; i++) {
 		Store<idx_t>(base_offset + cumulative_offset, row_ptr);
 		cumulative_offset += Load<uint32_t>(heap_base_ptr + cumulative_offset);
+        // 找到下一行
 		row_ptr += row_width;
 	}
 }

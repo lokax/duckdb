@@ -74,10 +74,12 @@ idx_t ExpressionExecutor::Select(const BoundConjunctionExpression &expr, Express
 			temp_true = make_unique<SelectionVector>(STANDARD_VECTOR_SIZE);
 			true_sel = temp_true.get();
 		}
+        // 遍历表达式的每一个孩子
 		for (idx_t i = 0; i < expr.children.size(); i++) {
 			idx_t tcount = Select(*expr.children[state->adaptive_filter->permutation[i]],
 			                      state->child_states[state->adaptive_filter->permutation[i]].get(), current_sel,
 			                      current_count, true_sel, temp_false.get());
+            // 计算出false的数量
 			idx_t fcount = current_count - tcount;
 			if (fcount > 0 && false_sel) {
 				// move failing tuples into the false_sel
@@ -86,7 +88,9 @@ idx_t ExpressionExecutor::Select(const BoundConjunctionExpression &expr, Express
 					false_sel->set_index(false_count++, temp_false->get_index(i));
 				}
 			}
+            // true的数量
 			current_count = tcount;
+            // 如果一个true都没有，则直接退出
 			if (current_count == 0) {
 				break;
 			}

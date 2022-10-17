@@ -1,5 +1,6 @@
 #include "duckdb/common/fast_mem.hpp"
 #include "duckdb/common/sort/comparators.hpp"
+#include "duckdb/common/sort/duckdb_pdqsort.hpp"
 #include "duckdb/common/sort/sort.hpp"
 
 namespace duckdb {
@@ -238,8 +239,13 @@ void RadixSortMSD(const data_ptr_t orig_ptr, const data_ptr_t temp_ptr, const id
 
 //! Calls different sort functions, depending on the count and sorting sizes
 void RadixSort(BufferManager &buffer_manager, const data_ptr_t &dataptr, const idx_t &count, const idx_t &col_offset,
-               const idx_t &sorting_size, const SortLayout &sort_layout) {
-	if (count <= SortConstants::INSERTION_SORT_THRESHOLD) {
+               const idx_t &sorting_size, const SortLayout &sort_layout, bool contains_string) {
+	if (contains_string) {
+		auto begin = duckdb_pdqsort::PDQIterator(dataptr, sort_layout.entry_size);
+		auto end = begin + count;
+		duckdb_pdqsort::PDQConstants constants(sort_layout.entry_size, col_offset, sorting_size, *end);
+		duckdb_pdqsort::pdqsort_branchless(begin, begin + count, constants);
+	} else if (count <= SortConstants::INSERTION_SORT_THRESHOLD) {
 		InsertionSort(dataptr, nullptr, count, 0, sort_layout.entry_size, sort_layout.comparison_size, 0, false);
 	} else if (sorting_size <= SortConstants::MSD_RADIX_SORT_SIZE_THRESHOLD) {
 		RadixSortLSD(buffer_manager, dataptr, count, col_offset, sort_layout.entry_size, sorting_size);
@@ -254,7 +260,7 @@ void RadixSort(BufferManager &buffer_manager, const data_ptr_t &dataptr, const i
 //! Identifies sequences of rows that are tied, and calls radix sort on these
 static void SubSortTiedTuples(BufferManager &buffer_manager, const data_ptr_t dataptr, const idx_t &count,
                               const idx_t &col_offset, const idx_t &sorting_size, bool ties[],
-                              const SortLayout &sort_layout) {
+                              const SortLayout &sort_layout, bool contains_string) {
 	D_ASSERT(!ties[count - 1]);
 	for (idx_t i = 0; i < count; i++) {
 		if (!ties[i]) {
@@ -267,7 +273,7 @@ static void SubSortTiedTuples(BufferManager &buffer_manager, const data_ptr_t da
 			}
 		}
 		RadixSort(buffer_manager, dataptr + i * sort_layout.entry_size, j - i + 1, col_offset, sorting_size,
-		          sort_layout);
+		          sort_layout, contains_string);
 		i = j;
 	}
 }
@@ -289,9 +295,10 @@ void LocalSortState::SortInMemory() {
 	idx_t col_offset = 0;
 	unique_ptr<bool[]> ties_ptr;
 	bool *ties = nullptr;
-    // 遍历每一列
+	bool contains_string = false;
 	for (idx_t i = 0; i < sort_layout->column_count; i++) {
 		sorting_size += sort_layout->column_sizes[i];
+		contains_string = contains_string || sort_layout->logical_types[i].InternalType() == PhysicalType::VARCHAR;
 		if (sort_layout->constant_size[i] && i < sort_layout->column_count - 1) {
 			// Add columns to the sorting size until we reach a variable size column, or the last column
 			continue;
@@ -300,15 +307,18 @@ void LocalSortState::SortInMemory() {
         // ties是空，代表是第一次排序
 		if (!ties) {
 			// This is the first sort
-			RadixSort(*buffer_manager, dataptr, count, col_offset, sorting_size, *sort_layout);
-			ties_ptr = unique_ptr<bool[]>(new bool[count]); // 创建ties
+			RadixSort(*buffer_manager, dataptr, count, col_offset, sorting_size, *sort_layout, contains_string);
+			ties_ptr = unique_ptr<bool[]>(new bool[count]);
 			ties = ties_ptr.get();
 			std::fill_n(ties, count - 1, true); // count是数据个数
 			ties[count - 1] = false;
 		} else {
 			// For subsequent sorts, we only have to subsort the tied tuples
-			SubSortTiedTuples(*buffer_manager, dataptr, count, col_offset, sorting_size, ties, *sort_layout);
+			SubSortTiedTuples(*buffer_manager, dataptr, count, col_offset, sorting_size, ties, *sort_layout,
+			                  contains_string);
 		}
+
+		contains_string = false;
 
 		if (sort_layout->constant_size[i] && i == sort_layout->column_count - 1) {
 			// All columns are sorted, no ties to break because last column is constant size

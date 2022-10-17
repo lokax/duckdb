@@ -172,10 +172,14 @@ void Pipeline::Ready() {
 		return;
 	}
 	ready = true;
+    //TODO:(lokax) 反转operator
 	std::reverse(operators.begin(), operators.end());
 }
 
 void Pipeline::Finalize(Event &event) {
+	if (executor.HasError()) {
+		return;
+	}
 	D_ASSERT(ready);
 	try {
 		auto sink_state = sink->Finalize(*this, event, executor.context, *sink->sink_state);

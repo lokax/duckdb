@@ -117,15 +117,19 @@ OperatorResultType PhysicalBlockwiseNLJoin::Execute(ExecutionContext &context, D
 		auto result = state.cross_product.Execute(input, chunk);
 		if (result == OperatorResultType::NEED_MORE_INPUT) {
 			// exhausted input, have to pull new LHS chunk
+            // 如果不是左外连接或者full
 			if (state.left_outer.Enabled()) {
 				// left join: before we move to the next chunk, see if we need to output any vectors that didn't
 				// have a match found
 				state.left_outer.ConstructLeftJoinResult(input, chunk);
 				state.left_outer.Reset();
 			}
+            // 需要更多的数据
 			return OperatorResultType::NEED_MORE_INPUT;
 		}
 
+
+        // 选择表达式
 		// now perform the computation
 		result_count = state.executor.SelectExpression(chunk, state.match_sel);
 		if (result_count > 0) {
@@ -142,11 +146,13 @@ OperatorResultType PhysicalBlockwiseNLJoin::Execute(ExecutionContext &context, D
 				// set the match flags in the RHS
 				gstate.right_outer.SetMatches(state.match_sel, result_count, state.cross_product.ScanPosition());
 			}
+            // Slice一下
 			chunk.Slice(state.match_sel, result_count);
 		} else {
 			// no result: reset the chunk
 			chunk.Reset();
 		}
+        // result_count是0，则继续循环
 	} while (result_count == 0);
 	return OperatorResultType::HAVE_MORE_OUTPUT;
 }

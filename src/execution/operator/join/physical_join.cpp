@@ -30,6 +30,7 @@ void PhysicalJoin::BuildJoinPipelines(Executor &executor, Pipeline &current, Pip
 	op.op_state.reset();
 	op.sink_state.reset();
 
+    // current是探测流水线
 	// 'current' is the probe pipeline: add this operator
 	state.AddPipelineOperator(current, &op);
 
@@ -37,7 +38,9 @@ void PhysicalJoin::BuildJoinPipelines(Executor &executor, Pipeline &current, Pip
 	// this pipeline has to happen AFTER all the probing has happened
 	bool add_child_pipeline = false;
 	if (op.type != PhysicalOperatorType::CROSS_PRODUCT) {
+        // 类型转换成join
 		auto &join_op = (PhysicalJoin &)op;
+        // 如果是右外连接的话，需要添加孩子流水线
 		if (IsRightOuterJoin(join_op.join_type)) {
 			if (state.recursive_cte) {
 				throw NotImplementedException("FULL and RIGHT outer joins are not supported in recursive CTEs yet");

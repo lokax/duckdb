@@ -55,7 +55,7 @@ idx_t SelectComparison<LessThanEquals>(Vector &left, Vector &right, const Select
                                        SelectionVector *true_sel, SelectionVector *false_sel) {
 	return VectorOperations::DistinctLessThanEquals(left, right, &sel, count, true_sel, false_sel);
 }
-
+// 比较正常的操作
 template <class T, class OP, bool NO_MATCH_SEL>
 static void TemplatedMatchType(UnifiedVectorFormat &col, Vector &rows, SelectionVector &sel, idx_t &count,
                                idx_t col_offset, idx_t col_no, SelectionVector *no_match, idx_t &no_match_count) {
@@ -65,6 +65,7 @@ static void TemplatedMatchType(UnifiedVectorFormat &col, Vector &rows, Selection
 	ValidityBytes::GetEntryIndex(col_no, entry_idx, idx_in_entry);
 
 	auto data = (T *)col.data;
+    // 哈希表内行存储数据的指针
 	auto ptrs = FlatVector::GetData<data_ptr_t>(rows);
 	idx_t match_count = 0;
 	if (!col.validity.AllValid()) {
@@ -97,6 +98,7 @@ static void TemplatedMatchType(UnifiedVectorFormat &col, Vector &rows, Selection
 			}
 		}
 	} else {
+        // 如果探测列的数据全部有效
 		for (idx_t i = 0; i < count; i++) {
 			auto idx = sel.get_index(i);
 
@@ -145,6 +147,7 @@ static void TemplatedMatchOp(Vector &vec, UnifiedVectorFormat &col, const RowLay
 	if (count == 0) {
 		return;
 	}
+    // 拿出列的偏移量
 	auto col_offset = layout.GetOffsets()[col_no];
 	switch (layout.GetTypes()[col_no].InternalType()) {
 	case PhysicalType::BOOL:
@@ -210,12 +213,15 @@ static void TemplatedMatchOp(Vector &vec, UnifiedVectorFormat &col, const RowLay
 	}
 }
 
+// NO_MATCH_SEL表明是否有no match sel
 template <bool NO_MATCH_SEL>
 static void TemplatedMatch(DataChunk &columns, UnifiedVectorFormat col_data[], const RowLayout &layout, Vector &rows,
                            const Predicates &predicates, SelectionVector &sel, idx_t &count, SelectionVector *no_match,
                            idx_t &no_match_count) {
+    // 遍历每一列
 	for (idx_t col_no = 0; col_no < predicates.size(); ++col_no) {
-		auto &vec = columns.data[col_no]; // 拿出对应的列
+        // 拿出对应的列
+		auto &vec = columns.data[col_no];
 		auto &col = col_data[col_no];
 		switch (predicates[col_no]) {
 		case ExpressionType::COMPARE_EQUAL:

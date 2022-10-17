@@ -125,22 +125,26 @@ void JoinHashTable::ApplyBitmask(Vector &hashes, idx_t count) {
 }
 
 void JoinHashTable::ApplyBitmask(Vector &hashes, const SelectionVector &sel, idx_t count, Vector &pointers) {
+    // 转换成统一格式
 	UnifiedVectorFormat hdata;
 	hashes.ToUnifiedFormat(count, hdata);
 
 	auto hash_data = (hash_t *)hdata.data;
 	auto result_data = FlatVector::GetData<data_ptr_t *>(pointers);
+    // 哈希表的头
 	auto main_ht = (data_ptr_t *)hash_map.Ptr();
 	for (idx_t i = 0; i < count; i++) {
 		auto rindex = sel.get_index(i);
 		auto hindex = hdata.sel->get_index(rindex);
 		auto hash = hash_data[hindex];
+        // 保存指针下来
 		result_data[rindex] = main_ht + (hash & bitmask);
 	}
 }
 
 void JoinHashTable::Hash(DataChunk &keys, const SelectionVector &sel, idx_t count, Vector &hashes) {
 	if (count == keys.size()) {
+        // 向量化操作
 		// no null values are filtered: use regular hash functions
 		VectorOperations::Hash(keys.data[0], hashes, keys.size());
 		for (idx_t i = 1; i < equality_types.size(); i++) {
@@ -170,8 +174,10 @@ static idx_t FilterNullValues(UnifiedVectorFormat &vdata, const SelectionVector 
 
 idx_t JoinHashTable::PrepareKeys(DataChunk &keys, unique_ptr<UnifiedVectorFormat[]> &key_data,
                                  const SelectionVector *&current_sel, SelectionVector &sel, bool build_side) {
+    // 把keys转换成统一格式
 	key_data = keys.ToUnifiedFormat();
 
+    // 先把当前的sel设置成单调递增的
 	// figure out which keys are NULL, and create a selection vector out of them
 	current_sel = FlatVector::IncrementalSelectionVector();
 	idx_t added_count = keys.size();
@@ -179,6 +185,7 @@ idx_t JoinHashTable::PrepareKeys(DataChunk &keys, unique_ptr<UnifiedVectorFormat
 		// in case of a right or full outer join, we cannot remove NULL keys from the build side
 		return added_count;
 	}
+    // 遍历每一列
 	for (idx_t i = 0; i < keys.ColumnCount(); i++) {
 		if (!null_values_are_equal[i]) { // 如果NULL值不相等
 			if (key_data[i].validity.AllValid()) {
@@ -290,6 +297,7 @@ static inline void InsertHashesLoop(atomic<data_ptr_t> pointers[], const hash_t 
 		auto index = indices[i];
 		if (PARALLEL) {
 			data_ptr_t head;
+            // CAS实现无锁插入
 			do {
 				head = pointers[index];
 				Store<data_ptr_t>(head, key_locations[i] + pointer_offset);
@@ -385,7 +393,7 @@ unique_ptr<ScanStructure> JoinHashTable::InitializeScanStructure(DataChunk &keys
 	// set up the scan structure
 	auto ss = make_unique<ScanStructure>(*this); // 创建ScanState
 
-    // 创建found match
+    // 创建found match，如果是右外连接也会创建？
 	if (join_type != JoinType::INNER) {
 		ss->found_match = unique_ptr<bool[]>(new bool[STANDARD_VECTOR_SIZE]);
 		memset(ss->found_match.get(), 0, sizeof(bool) * STANDARD_VECTOR_SIZE);
@@ -403,6 +411,7 @@ unique_ptr<ScanStructure> JoinHashTable::Probe(DataChunk &keys, Vector *precompu
 		return ss;
 	}
 
+    // 如果有预先计算号的哈希值
 	if (precomputed_hashes) {
 		ApplyBitmask(*precomputed_hashes, *current_sel, ss->count, ss->pointers);
 	} else {
@@ -509,6 +518,7 @@ void ScanStructure::InitializeSelectionVector(const SelectionVector *&current_se
 	auto cnt = count;
 	for (idx_t i = 0; i < cnt; i++) {
 		const auto idx = current_sel->get_index(i);
+        // 加载指针值
 		ptrs[idx] = Load<data_ptr_t>(ptrs[idx]);
 		if (ptrs[idx]) {
 			sel_vector.set_index(non_empty_count++, idx);
@@ -916,6 +926,7 @@ void JoinHashTable::SwizzleBlocks() {
 	idx_t heap_block_remaining = heap_blocks[heap_block_idx]->count;
 	for (auto &data_block : block_collection->blocks) {
 		if (heap_block_remaining == 0) {
+            // 这个++不会出错？
 			heap_block_remaining = heap_blocks[++heap_block_idx]->count;
 		}
 
@@ -928,6 +939,7 @@ void JoinHashTable::SwizzleBlocks() {
 		if (heap_block_remaining >= data_block->count) {
 			// Easy: current heap block contains all strings for this data block, just copy (reference) the block
 			swizzled_string_heap->blocks.emplace_back(heap_blocks[heap_block_idx]->Copy());
+            // 数量变成当前data_block的数量
 			swizzled_string_heap->blocks.back()->count = data_block->count;
 
 			// Swizzle the heap pointer
@@ -944,6 +956,7 @@ void JoinHashTable::SwizzleBlocks() {
 			vector<std::pair<data_ptr_t, idx_t>> ptrs_and_sizes;
 			idx_t total_size = 0;
 			while (data_block_remaining > 0) {
+                // 移动到下一个
 				if (heap_block_remaining == 0) {
 					heap_block_remaining = heap_blocks[++heap_block_idx]->count;
 				}
@@ -973,6 +986,7 @@ void JoinHashTable::SwizzleBlocks() {
 			    make_unique<RowDataBlock>(buffer_manager, MaxValue<idx_t>(total_size, (idx_t)Storage::BLOCK_SIZE), 1));
 			auto new_heap_handle = buffer_manager.Pin(swizzled_string_heap->blocks.back()->block);
 			auto new_heap_ptr = new_heap_handle.Ptr();
+            // 这种情况需要进行拷贝
 			for (auto &ptr_and_size : ptrs_and_sizes) {
 				memcpy(new_heap_ptr, ptr_and_size.first, ptr_and_size.second);
 				new_heap_ptr += ptr_and_size.second;

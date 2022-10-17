@@ -55,6 +55,7 @@ void OuterJoinMarker::ConstructLeftJoinResult(DataChunk &left, DataChunk &result
 	}
 	if (remaining_count > 0) {
 		result.Slice(left, remaining_sel, remaining_count);
+        // 常量向量，设置成NULL值，有点意思
 		for (idx_t idx = left.ColumnCount(); idx < result.ColumnCount(); idx++) {
 			result.data[idx].SetVectorType(VectorType::CONSTANT_VECTOR);
 			ConstantVector::SetNull(result.data[idx], true);
