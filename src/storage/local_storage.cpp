@@ -33,6 +33,7 @@ LocalTableStorage::LocalTableStorage(DataTable &table)
 			for (auto &expr : art.unbound_expressions) {
 				unbound_expressions.push_back(expr->Copy());
 			}
+            // 创建一个本地art?
 			indexes.AddIndex(make_unique<ART>(art.column_ids, art.table_io_manager, move(unbound_expressions),
 			                                  art.constraint_type, art.db));
 		}
@@ -97,6 +98,7 @@ idx_t LocalTableStorage::EstimatedSize() {
 	idx_t row_size = 0;
 	auto &types = row_groups->GetTypes();
 	for (auto &type : types) {
+        // 对于结构体的话，感觉并不准
 		row_size += GetTypeIdSize(type.InternalType());
 	}
 	return appended_rows * row_size;
@@ -163,12 +165,14 @@ void LocalStorage::InitializeAppend(LocalAppendState &state, DataTable *table) {
 
 void LocalStorage::Append(LocalAppendState &state, DataChunk &chunk) {
 	// append to unique indices (if any)
+    // 拿出本地存储
 	auto storage = state.storage;
+    // 行id从最大的row id开始
 	idx_t base_id = MAX_ROW_ID + storage->row_groups->GetTotalRows();
 	if (!DataTable::AppendToIndexes(storage->indexes, chunk, base_id)) {
 		throw ConstraintException("PRIMARY KEY or UNIQUE constraint violated: duplicated key");
 	}
-
+    // 如果创建了新的row group
 	//! Append the chunk to the local storage
 	auto new_row_group = storage->row_groups->Append(chunk, state.append_state, storage->stats);
 
@@ -181,9 +185,11 @@ void LocalStorage::Append(LocalAppendState &state, DataChunk &chunk) {
 void LocalTableStorage::CheckFlushToDisk() {
 	// we finished writing a complete row group
 	// check if we should pre-emptively write it to disk
+    // 如果是临时表或者内存数据库，则不刷新
 	if (table->info->IsTemporary() || StorageManager::GetStorageManager(table->db).InMemory()) {
 		return;
 	}
+    // 如果有删除行，则不能merge
 	if (deleted_rows != 0) {
 		// we have deletes - we cannot merge
 		return;
@@ -194,6 +200,7 @@ void LocalTableStorage::CheckFlushToDisk() {
 		auto &block_manager = table->info->table_io_manager->GetBlockManagerForRowData();
 		partial_manager = make_unique<PartialBlockManager>(block_manager);
 	}
+    // 把倒数第二写进去
 	// flush second-to-last row group
 	auto row_group = row_groups->GetRowGroup(-2);
 	FlushToDisk(row_group);
@@ -207,6 +214,7 @@ void LocalTableStorage::FlushToDisk(RowGroup *row_group) {
 	//! The set of column compression types (if any)
 	vector<CompressionType> compression_types;
 	D_ASSERT(compression_types.empty());
+    // 获取每一列的压缩类型
 	for (auto &column : table->column_definitions) {
 		compression_types.push_back(column.CompressionType());
 	}
@@ -386,6 +394,7 @@ void LocalStorage::Flush(DataTable &table, LocalTableStorage &storage) {
 
 	TableAppendState append_state;
 	table.AppendLock(append_state);
+    // 获取表的添加锁
 	if ((append_state.row_start == 0 || storage.row_groups->GetTotalRows() >= MERGE_THRESHOLD) &&
 	    storage.deleted_rows == 0) {
 		// table is currently empty OR we are bulk appending: move over the storage directly
@@ -402,6 +411,7 @@ void LocalStorage::Flush(DataTable &table, LocalTableStorage &storage) {
 	} else {
 		if (storage.partial_manager || !storage.written_blocks.empty()) {
 			// we have written data but cannot merge to disk after all
+            
 			// revert the data we have already written
 			storage.Rollback();
 		}

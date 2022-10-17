@@ -176,6 +176,7 @@ OperatorResultType PhysicalUnnest::ExecuteInternal(ExecutionContext &context, Da
 		if (state.first_fetch) {
 			// get the list data to unnest
 			state.list_data.Reset();
+            // 计算表达式
 			state.executor.Execute(input, state.list_data);
 
 			// paranoia aplenty
@@ -213,21 +214,26 @@ OperatorResultType PhysicalUnnest::ExecuteInternal(ExecutionContext &context, Da
 
 		// need to figure out how many times we need to repeat for current row
 		if (state.list_length < 0) {
+            // 遍历每一列
 			for (idx_t col_idx = 0; col_idx < state.list_data.ColumnCount(); col_idx++) {
+                // 拿出列表向量
 				auto &vdata = state.list_vector_data[col_idx];
 				auto current_idx = vdata.sel->get_index(state.parent_position);
 
 				int64_t list_length;
 				// deal with NULL values
 				if (!vdata.validity.RowIsValid(current_idx)) {
+                    // 如果列表值是NULL值，则长度是0
 					list_length = 0;
 				} else {
 					auto list_data = (list_entry_t *)vdata.data;
 					auto list_entry = list_data[current_idx];
+                    // 获取列表长度
 					list_length = (int64_t)list_entry.length;
 				}
 
-				if (list_length > state.list_length) { // 找到最大的length?
+				if (list_length > state.list_length) { 
+                    // 找到最大的length?
 					state.list_length = list_length;
 				}
 			}
@@ -242,6 +248,8 @@ OperatorResultType PhysicalUnnest::ExecuteInternal(ExecutionContext &context, Da
 
 		idx_t output_offset = 0;
 		if (include_input) {
+            // 只引用输入的一条数据?
+            // SELECT UNNEST([1, 2, 3]), 10; 这种场景？
 			for (idx_t col_idx = 0; col_idx < input.ColumnCount(); col_idx++) {
 				ConstantVector::Reference(chunk.data[col_idx], input.data[col_idx], state.parent_position,
 				                          input.size());
@@ -255,10 +263,14 @@ OperatorResultType PhysicalUnnest::ExecuteInternal(ExecutionContext &context, Da
 
 			if (state.list_data.data[col_idx].GetType() == LogicalType::SQLNULL) {
 				// UNNEST(NULL)
+                // 直接设置成0?
+                // SELECT UNNEST(NULL), 10; 这种情况返回空集，注意不是返回NULL值
 				chunk.SetCardinality(0);
 			} else {
-				auto &vdata = state.list_vector_data[col_idx]; // list的vector
-				auto &child_data = state.list_child_data[col_idx]; // list内部包含的实际数据的vector
+				auto &vdata = state.list_vector_data[col_idx]; 
+                // list的vector
+				auto &child_data = state.list_child_data[col_idx]; 
+                // list内部包含的实际数据的vector
 				auto current_idx = vdata.sel->get_index(state.parent_position);
 
 				auto list_data = (list_entry_t *)vdata.data;
@@ -268,10 +280,15 @@ OperatorResultType PhysicalUnnest::ExecuteInternal(ExecutionContext &context, Da
 				if (state.list_position >= list_entry.length) {
 					list_count = 0;
 				} else {
+                    // TODO(lokax): 这个比较感觉不需要
+                    // 上面那条注释是错的
+                    // 因为state.list_length是所有UNNEST中的列表中最大的length
+                    // 而这里是每一条列表自己的length
 					list_count = MinValue<idx_t>(this_chunk_len, list_entry.length - state.list_position);
 				}
 
 				if (list_entry.length > state.list_position) {
+                    // 这里有无必要？列表有长度，但是是NULL值的情况？
 					if (!vdata.validity.RowIsValid(current_idx)) {
 						UnnestNull(0, list_count, result_vector);
 					} else {
@@ -288,9 +305,10 @@ OperatorResultType PhysicalUnnest::ExecuteInternal(ExecutionContext &context, Da
 				UnnestNull(list_count, this_chunk_len, result_vector);
 			}
 		}
-
+        // 移动当前列表元素的位置
 		state.list_position += this_chunk_len;
 		if ((int64_t)state.list_position == state.list_length) {
+            // 移动到下一个列表
 			state.parent_position++;
 			state.list_length = -1;
 			state.list_position = 0;
