@@ -17,12 +17,8 @@ public:
 	Node4();
     // 4个key
 	uint8_t key[4];
-<<<<<<< HEAD
 	// Pointers to the child nodes
-    // 4个混写指针
-=======
->>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
-	SwizzleablePointer children[4];
+	ARTPointer children[4];
 
 public:
 	//! Get position of a byte, returns DConstants::INVALID_INDEX if not exists
@@ -44,7 +40,7 @@ public:
 	//! Erase the child at pos and (if necessary) merge with last child
 	static void EraseChild(Node *&node, int pos, ART &art);
 	//! Merge Node4 into l_node
-	static void Merge(MergeInfo &info, idx_t depth, Node *&l_parent, idx_t l_pos);
+	static bool Merge(MergeInfo &info, idx_t depth, Node *&l_parent, idx_t l_pos);
 	//! Returns the size (maximum capacity) of the Node4
 	static idx_t GetSize();
 };

@@ -146,13 +146,9 @@ unique_ptr<JoinHashTable> PhysicalHashJoin::InitializeHashTable(ClientContext &c
 
 			// jury-rigging the GroupedAggregateHashTable
 			// we need a count_star and a count to get counts with and without NULLs
-<<<<<<< HEAD
-			aggr = AggregateFunction::BindAggregateFunction(context, CountStarFun::GetFunction(), {}, nullptr, false); // 获得CountStar的聚合函数
-=======
 
 			FunctionBinder function_binder(context);
 			aggr = function_binder.BindAggregateFunction(CountStarFun::GetFunction(), {}, nullptr, false);
->>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
 			correlated_aggregates.push_back(&*aggr);
 			payload_types.push_back(aggr->return_type);
 			info.correlated_aggregates.push_back(move(aggr)); // Move这个聚合函数进去

@@ -19,24 +19,27 @@ namespace duckdb {
 constexpr const idx_t RowGroup::ROW_GROUP_VECTOR_COUNT;
 constexpr const idx_t RowGroup::ROW_GROUP_SIZE;
 
-RowGroup::RowGroup(DatabaseInstance &db, DataTableInfo &table_info, idx_t start, idx_t count)
-    : SegmentBase(start, count), db(db), table_info(table_info) {
+RowGroup::RowGroup(DatabaseInstance &db, BlockManager &block_manager, DataTableInfo &table_info, idx_t start,
+                   idx_t count)
+    : SegmentBase(start, count), db(db), block_manager(block_manager), table_info(table_info) {
 
 	Verify();
 }
 
-RowGroup::RowGroup(DatabaseInstance &db, DataTableInfo &table_info, const vector<LogicalType> &types,
-                   RowGroupPointer &pointer)
-    : SegmentBase(pointer.row_start, pointer.tuple_count), db(db), table_info(table_info) {
+RowGroup::RowGroup(DatabaseInstance &db, BlockManager &block_manager, DataTableInfo &table_info,
+                   const vector<LogicalType> &types, RowGroupPointer &&pointer)
+    : SegmentBase(pointer.row_start, pointer.tuple_count), db(db), block_manager(block_manager),
+      table_info(table_info) {
 	// deserialize the columns
 	if (pointer.data_pointers.size() != types.size()) {
 		throw IOException("Row group column count is unaligned with table column count. Corrupt file?");
 	}
 	for (idx_t i = 0; i < pointer.data_pointers.size(); i++) {
 		auto &block_pointer = pointer.data_pointers[i];
-		MetaBlockReader column_data_reader(db, block_pointer.block_id);
+		MetaBlockReader column_data_reader(block_manager, block_pointer.block_id);
 		column_data_reader.offset = block_pointer.offset;
-		this->columns.push_back(ColumnData::Deserialize(table_info, i, start, column_data_reader, types[i], nullptr));
+		this->columns.push_back(
+		    ColumnData::Deserialize(block_manager, table_info, i, start, column_data_reader, types[i], nullptr));
 	}
 
 	// set up the statistics
@@ -49,13 +52,35 @@ RowGroup::RowGroup(DatabaseInstance &db, DataTableInfo &table_info, const vector
 	Verify();
 }
 
+RowGroup::RowGroup(RowGroup &row_group, idx_t start)
+    : SegmentBase(start, row_group.count), db(row_group.db), block_manager(row_group.block_manager),
+      table_info(row_group.table_info), version_info(move(row_group.version_info)), stats(move(row_group.stats)) {
+	for (auto &column : row_group.columns) {
+		this->columns.push_back(ColumnData::CreateColumn(*column, start));
+	}
+	if (version_info) {
+		version_info->SetStart(start);
+	}
+	Verify();
+}
+
+void VersionNode::SetStart(idx_t start) {
+	idx_t current_start = start;
+	for (idx_t i = 0; i < RowGroup::ROW_GROUP_VECTOR_COUNT; i++) {
+		if (info[i]) {
+			info[i]->start = current_start;
+		}
+		current_start += STANDARD_VECTOR_SIZE;
+	}
+}
+
 RowGroup::~RowGroup() {
 }
 
 void RowGroup::InitializeEmpty(const vector<LogicalType> &types) {
 	// set up the segment trees for the column segments
 	for (idx_t i = 0; i < types.size(); i++) {
-		auto column_data = ColumnData::CreateColumn(GetTableInfo(), i, start, types[i]);
+		auto column_data = ColumnData::CreateColumn(block_manager, GetTableInfo(), i, start, types[i]);
 		stats.push_back(make_shared<SegmentStatistics>(types[i]));
 		columns.push_back(move(column_data));
 	}
@@ -117,7 +142,7 @@ unique_ptr<RowGroup> RowGroup::AlterType(const LogicalType &target_type, idx_t c
 	Verify();
 
 	// construct a new column data for this type
-	auto column_data = ColumnData::CreateColumn(GetTableInfo(), changed_idx, start, target_type);
+	auto column_data = ColumnData::CreateColumn(block_manager, GetTableInfo(), changed_idx, start, target_type);
 
 	ColumnAppendState append_state;
 	column_data->InitializeAppend(append_state);
@@ -140,7 +165,7 @@ unique_ptr<RowGroup> RowGroup::AlterType(const LogicalType &target_type, idx_t c
 	}
 
 	// set up the row_group based on this row_group
-	auto row_group = make_unique<RowGroup>(db, table_info, this->start, this->count);
+	auto row_group = make_unique<RowGroup>(db, block_manager, table_info, this->start, this->count);
 	row_group->version_info = version_info;
 	for (idx_t i = 0; i < columns.size(); i++) {
 		if (i == changed_idx) {
@@ -162,7 +187,8 @@ unique_ptr<RowGroup> RowGroup::AddColumn(ColumnDefinition &new_column, Expressio
 	Verify();
 
 	// construct a new column data for the new column
-	auto added_column = ColumnData::CreateColumn(GetTableInfo(), columns.size(), start, new_column.Type());
+	auto added_column =
+	    ColumnData::CreateColumn(block_manager, GetTableInfo(), columns.size(), start, new_column.Type());
 	auto added_col_stats = make_shared<SegmentStatistics>(
 	    new_column.Type(), BaseStatistics::CreateEmpty(new_column.Type(), StatisticsType::LOCAL_STATS));
 
@@ -183,7 +209,7 @@ unique_ptr<RowGroup> RowGroup::AddColumn(ColumnDefinition &new_column, Expressio
 	}
 
 	// set up the row_group based on this row_group
-	auto row_group = make_unique<RowGroup>(db, table_info, this->start, this->count);
+	auto row_group = make_unique<RowGroup>(db, block_manager, table_info, this->start, this->count);
 	row_group->version_info = version_info;
 	row_group->columns = columns;
 	row_group->stats = stats;
@@ -200,7 +226,7 @@ unique_ptr<RowGroup> RowGroup::RemoveColumn(idx_t removed_column) {
 
 	D_ASSERT(removed_column < columns.size());
 
-	auto row_group = make_unique<RowGroup>(db, table_info, this->start, this->count);
+	auto row_group = make_unique<RowGroup>(db, block_manager, table_info, this->start, this->count);
 	row_group->version_info = version_info;
 	row_group->columns = columns;
 	row_group->stats = stats;
@@ -318,18 +344,9 @@ void RowGroup::TemplatedScan(TransactionData transaction, RowGroupScanState &sta
 				continue;
 			}
 		} else if (TYPE == TableScanType::TABLE_SCAN_COMMITTED_ROWS_OMIT_PERMANENTLY_DELETED) {
-<<<<<<< HEAD
-			// 创建索引时会是这种类型的table scan,会忽略掉所以不会再被看到的已经删除的记录
-            auto &transaction_manager = TransactionManager::Get(db);
-			auto lowest_active_start = transaction_manager.LowestActiveStart();
-			auto lowest_active_id = transaction_manager.LowestActiveId();
-
-			count = state.row_group->GetCommittedSelVector(lowest_active_start, lowest_active_id, state.vector_index,
-			                                               valid_sel, max_count);
-=======
+            // 创建索引时会是这种类型的table scan,会忽略掉所以不会再被看到的已经删除的记录
 			count = state.row_group->GetCommittedSelVector(transaction.start_time, transaction.transaction_id,
 			                                               state.vector_index, valid_sel, max_count);
->>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
 			if (count == 0) {
 				// nothing to scan for this vector, skip the entire vector
 				NextVector(state);
@@ -354,13 +371,8 @@ void RowGroup::TemplatedScan(TransactionData transaction, RowGroupScanState &sta
 						columns[column]->ScanCommitted(state.vector_index, state.column_scans[i], result.data[i],
 						                               ALLOW_UPDATES);
 					} else {
-<<<<<<< HEAD
-						D_ASSERT(transaction);
                         // 正常的扫描，会通过update info将数据回滚到一个可见的version
-						columns[column]->Scan(*transaction, state.vector_index, state.column_scans[i], result.data[i]);
-=======
 						columns[column]->Scan(transaction, state.vector_index, state.column_scans[i], result.data[i]);
->>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
 					}
 				}
 			}
@@ -375,14 +387,9 @@ void RowGroup::TemplatedScan(TransactionData transaction, RowGroupScanState &sta
 			}
 			//! first, we scan the columns with filters, fetch their data and generate a selection vector.
 			//! get runtime statistics
-<<<<<<< HEAD
-			auto start_time = high_resolution_clock::now(); // 这是做统计数据吗？
-			if (table_filters) { // 如果存在过滤器
-=======
 			auto start_time = high_resolution_clock::now();
 			if (table_filters) {
 				D_ASSERT(adaptive_filter);
->>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
 				D_ASSERT(ALLOW_UPDATES);
 				for (idx_t i = 0; i < table_filters->filters.size(); i++) {
 					auto tf_idx = adaptive_filter->permutation[i];
@@ -426,19 +433,10 @@ void RowGroup::TemplatedScan(TransactionData transaction, RowGroupScanState &sta
 							result_data[sel_idx] = this->start + current_row + sel.get_index(sel_idx);
 						}
 					} else {
-<<<<<<< HEAD
-						if (TYPE == TableScanType::TABLE_SCAN_REGULAR) { // 如果是正常扫描
-							D_ASSERT(transaction);
-							columns[column]->FilterScan(*transaction, state.vector_index, state.column_scans[i],
-							                            result.data[i], sel, approved_tuple_count);
-						} else {
-							D_ASSERT(!transaction); // 这种情况transaction是nullptr
-=======
 						if (TYPE == TableScanType::TABLE_SCAN_REGULAR) {
 							columns[column]->FilterScan(transaction, state.vector_index, state.column_scans[i],
 							                            result.data[i], sel, approved_tuple_count);
 						} else {
->>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
 							columns[column]->FilterScanCommitted(state.vector_index, state.column_scans[i],
 							                                     result.data[i], sel, approved_tuple_count,
 							                                     ALLOW_UPDATES);
@@ -459,14 +457,8 @@ void RowGroup::TemplatedScan(TransactionData transaction, RowGroupScanState &sta
 	}
 }
 
-<<<<<<< HEAD
-// 正常扫描数据
-void RowGroup::Scan(Transaction &transaction, RowGroupScanState &state, DataChunk &result) {
-	TemplatedScan<TableScanType::TABLE_SCAN_REGULAR>(&transaction, state, result);
-=======
 void RowGroup::Scan(TransactionData transaction, RowGroupScanState &state, DataChunk &result) {
 	TemplatedScan<TableScanType::TABLE_SCAN_REGULAR>(transaction, state, result);
->>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
 }
 
 // 扫描已提交数据
@@ -520,13 +512,9 @@ idx_t RowGroup::GetCommittedSelVector(transaction_t start_time, transaction_t tr
 	return info->GetCommittedSelVector(start_time, transaction_id, sel_vector, max_count);
 }
 
-<<<<<<< HEAD
-bool RowGroup::Fetch(Transaction &transaction, idx_t row) {
-	D_ASSERT(row < this->count); // row = row_id - start， 其实是一个偏移量
-=======
 bool RowGroup::Fetch(TransactionData transaction, idx_t row) {
 	D_ASSERT(row < this->count);
->>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
+    // row = row_id - start， 其实是一个偏移量
 	lock_guard<mutex> lock(row_group_lock);
 
 	idx_t vector_index = row / STANDARD_VECTOR_SIZE;
@@ -554,19 +542,15 @@ void RowGroup::FetchRow(TransactionData transaction, ColumnFetchState &state, co
 		}
 	}
 }
-<<<<<<< HEAD
-// weng: AppendVersionInfo(transaction, this->count, append_count, transaction.transaction_id);
-void RowGroup::AppendVersionInfo(Transaction &transaction, idx_t row_group_start, idx_t count,
-=======
 
-void RowGroup::AppendVersionInfo(TransactionData transaction, idx_t row_group_start, idx_t count,
->>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
-                                 transaction_t commit_id) {
-	idx_t row_group_end = row_group_start + count; // 计算结尾位置
-	lock_guard<mutex> lock(row_group_lock); // 加row_group_lock
 
-	this->count += count;
-	D_ASSERT(this->count <= RowGroup::ROW_GROUP_SIZE);
+void RowGroup::AppendVersionInfo(TransactionData transaction, idx_t count) {
+	idx_t row_group_start = this->count.load();
+	idx_t row_group_end = row_group_start + count;
+	if (row_group_end > RowGroup::ROW_GROUP_SIZE) {
+		row_group_end = RowGroup::ROW_GROUP_SIZE;
+	}
+	lock_guard<mutex> lock(row_group_lock);
 
 	// create the version_info if it doesn't exist yet
 	if (!version_info) {
@@ -581,7 +565,8 @@ void RowGroup::AppendVersionInfo(TransactionData transaction, idx_t row_group_st
 		if (start == 0 && end == STANDARD_VECTOR_SIZE) { // 完整的一个Vector
 			// entire vector is encapsulated by append: append a single constant
 			auto constant_info = make_unique<ChunkConstantInfo>(this->start + vector_idx * STANDARD_VECTOR_SIZE);
-			constant_info->insert_id = commit_id; // InitAppend时添加进来的是当前事务ID
+            // InitAppend时添加进来的是当前事务ID
+			constant_info->insert_id = transaction.transaction_id;
 			constant_info->delete_id = NOT_DELETED_ID;
 			version_info->info[vector_idx] = move(constant_info);
 		} else {
@@ -597,9 +582,10 @@ void RowGroup::AppendVersionInfo(TransactionData transaction, idx_t row_group_st
 				// use existing vector
 				info = (ChunkVectorInfo *)version_info->info[vector_idx].get();
 			}
-			info->Append(start, end, commit_id);
+			info->Append(start, end, transaction.transaction_id);
 		}
 	}
+	this->count = row_group_end;
 }
 
 // 提交更新
@@ -639,13 +625,8 @@ void RowGroup::RevertAppend(idx_t row_group_start) {
 	Verify();
 }
 
-<<<<<<< HEAD
-// 每次都会添加版本信息
-void RowGroup::InitializeAppend(Transaction &transaction, RowGroupAppendState &append_state,
-=======
-void RowGroup::InitializeAppend(TransactionData transaction, RowGroupAppendState &append_state,
->>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
-                                idx_t remaining_append_count) {
+
+void RowGroup::InitializeAppend(RowGroupAppendState &append_state) {
 	append_state.row_group = this;
 	append_state.offset_in_row_group = this->count; // 在row_group中的偏移量
 	// for each column, initialize the append state
@@ -653,9 +634,6 @@ void RowGroup::InitializeAppend(TransactionData transaction, RowGroupAppendState
 	for (idx_t i = 0; i < columns.size(); i++) {
 		columns[i]->InitializeAppend(append_state.states[i]);
 	}
-	// append the version info for this row_group
-	idx_t append_count = MinValue<idx_t>(remaining_append_count, RowGroup::ROW_GROUP_SIZE - this->count);
-	AppendVersionInfo(transaction, this->count, append_count, transaction.transaction_id);
 }
 // 实际添加数据
 void RowGroup::Append(RowGroupAppendState &state, DataChunk &chunk, idx_t append_count) {
@@ -665,13 +643,9 @@ void RowGroup::Append(RowGroupAppendState &state, DataChunk &chunk, idx_t append
 	}
 	state.offset_in_row_group += append_count;
 }
-<<<<<<< HEAD
-// Update会在ColumData里面去检测冲突
-void RowGroup::Update(Transaction &transaction, DataChunk &update_chunk, row_t *ids, idx_t offset, idx_t count,
-=======
 
+// Update会在ColumData里面去检测冲突
 void RowGroup::Update(TransactionData transaction, DataChunk &update_chunk, row_t *ids, idx_t offset, idx_t count,
->>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
                       const vector<column_t> &column_ids) {
 #ifdef DEBUG
 	for (size_t i = offset; i < offset + count; i++) {
@@ -727,40 +701,67 @@ void RowGroup::MergeIntoStatistics(idx_t column_idx, BaseStatistics &other) {
 	other.Merge(*stats[column_idx]->statistics);
 }
 
-RowGroupPointer RowGroup::Checkpoint(TableDataWriter &writer, vector<unique_ptr<BaseStatistics>> &global_stats) {
-	RowGroupPointer row_group_pointer;
-	vector<unique_ptr<ColumnCheckpointState>> states;
-	states.reserve(columns.size());
+RowGroupWriteData RowGroup::WriteToDisk(PartialBlockManager &manager,
+                                        const vector<CompressionType> &compression_types) {
+	RowGroupWriteData result;
+	result.states.reserve(columns.size());
+	result.statistics.reserve(columns.size());
 
-	// checkpoint the individual columns of the row group
+	// Checkpoint the individual columns of the row group
+	// Here we're iterating over columns. Each column can have multiple segments.
+	// (Some columns will be wider than others, and require different numbers
+	// of blocks to encode.) Segments cannot span blocks.
+	//
+	// Some of these columns are composite (list, struct). The data is written
+	// first sequentially, and the pointers are written later, so that the
+	// pointers all end up densely packed, and thus more cache-friendly.
 	for (idx_t column_idx = 0; column_idx < columns.size(); column_idx++) {
 		auto &column = columns[column_idx];
-		ColumnCheckpointInfo checkpoint_info {writer.GetColumnCompressionType(column_idx)};
-		auto checkpoint_state = column->Checkpoint(*this, writer, checkpoint_info);
+		ColumnCheckpointInfo checkpoint_info {compression_types[column_idx]};
+		auto checkpoint_state = column->Checkpoint(*this, manager, checkpoint_info);
 		D_ASSERT(checkpoint_state);
 
 		auto stats = checkpoint_state->GetStatistics();
 		D_ASSERT(stats);
 
-		global_stats[column_idx]->Merge(*stats);
-		row_group_pointer.statistics.push_back(move(stats));
-		states.push_back(move(checkpoint_state));
+		result.statistics.push_back(move(stats));
+		result.states.push_back(move(checkpoint_state));
 	}
+	D_ASSERT(result.states.size() == result.statistics.size());
+	return result;
+}
+
+RowGroupPointer RowGroup::Checkpoint(RowGroupWriter &writer, vector<unique_ptr<BaseStatistics>> &global_stats) {
+	RowGroupPointer row_group_pointer;
+
+	vector<CompressionType> compression_types;
+	compression_types.reserve(columns.size());
+	for (idx_t column_idx = 0; column_idx < columns.size(); column_idx++) {
+		compression_types.push_back(writer.GetColumnCompressionType(column_idx));
+	}
+	auto result = WriteToDisk(writer.GetPartialBlockManager(), compression_types);
+	for (idx_t column_idx = 0; column_idx < columns.size(); column_idx++) {
+		global_stats[column_idx]->Merge(*result.statistics[column_idx]);
+	}
+	row_group_pointer.statistics = move(result.statistics);
 
 	// construct the row group pointer and write the column meta data to disk
-	D_ASSERT(states.size() == columns.size());
+	D_ASSERT(result.states.size() == columns.size());
 	row_group_pointer.row_start = start;
 	row_group_pointer.tuple_count = count;
-	for (auto &state : states) {
-		// get the current position of the meta data writer
-		auto &meta_writer = writer.GetTableWriter();
-		auto pointer = meta_writer.GetBlockPointer();
+	for (auto &state : result.states) {
+		// get the current position of the table data writer
+		auto &data_writer = writer.GetPayloadWriter();
+		auto pointer = data_writer.GetBlockPointer();
 
 		// store the stats and the data pointers in the row group pointers
 		row_group_pointer.data_pointers.push_back(pointer);
 
-		// now flush the actual column data to disk
-		state->FlushToDisk();
+		// Write pointers to the column segments.
+		//
+		// Just as above, the state can refer to many other states, so this
+		// can cascade recursively into more pointer writes.
+		state->WriteDataPointers(writer);
 	}
 	row_group_pointer.versions = version_info;
 	Verify();
@@ -897,13 +898,8 @@ public:
 	void Flush();
 };
 
-<<<<<<< HEAD
-idx_t RowGroup::Delete(Transaction &transaction, DataTable *table, row_t *ids, idx_t count) {
-	lock_guard<mutex> lock(row_group_lock); // 加row_group_lock
-=======
 idx_t RowGroup::Delete(TransactionData transaction, DataTable *table, row_t *ids, idx_t count) {
 	lock_guard<mutex> lock(row_group_lock);
->>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
 	VersionDeleteState del_state(*this, transaction, table, this->start);
 
 	// obtain a write lock

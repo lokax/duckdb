@@ -583,14 +583,10 @@ FilterResult FilterCombiner::AddBoundComparisonFilter(Expression *expr) {
 		auto node = GetNode(left_is_scalar ? comparison.right.get() : comparison.left.get());
 		idx_t equivalence_set = GetEquivalenceSet(node);
 		auto scalar = left_is_scalar ? comparison.left.get() : comparison.right.get();
-<<<<<<< HEAD
-		auto constant_value = ExpressionExecutor::EvaluateScalar(*scalar); // 计算结果是什么
-=======
 		Value constant_value;
 		if (!ExpressionExecutor::TryEvaluateScalar(*scalar, constant_value)) {
 			return FilterResult::UNSATISFIABLE;
 		}
->>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
 		if (constant_value.IsNull()) {
 			// comparisons with null are always null (i.e. will never result in rows)
 			return FilterResult::UNSATISFIABLE;

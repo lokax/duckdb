@@ -30,43 +30,6 @@ static void AssignInvalidUTF8Reason(UnicodeInvalidReason *invalid_reason, size_t
 	}
 }
 
-<<<<<<< HEAD
-UnicodeType Utf8Proc::Analyze(const char *s, size_t len, UnicodeInvalidReason *invalid_reason, size_t *invalid_pos) {
-	UnicodeType type = UnicodeType::ASCII;
-	char c;
-	for (size_t i = 0; i < len; i++) {
-		c = s[i];
-		if (c == '\0') {
-			AssignInvalidUTF8Reason(invalid_reason, invalid_pos, i, UnicodeInvalidReason::NULL_BYTE);
-			return UnicodeType::INVALID;
-		}
-		// 1 Byte / ASCII
-		if ((c & 0x80) == 0) {
-			continue;
-		}
-        // 0xC0 --> 1100 0000
-        // 1100 0000
-        // 10xx xxxx
-        // 1000 0000 
-		type = UnicodeType::UNICODE;
-		if ((s[++i] & 0xC0) != 0x80) {
-			AssignInvalidUTF8Reason(invalid_reason, invalid_pos, i, UnicodeInvalidReason::BYTE_MISMATCH);
-			return UnicodeType::INVALID;
-		}
-        // 0xE0 --> 1110 0000
-		if ((c & 0xE0) == 0xC0) {
-			continue;
-		}
-		if ((s[++i] & 0xC0) != 0x80) {
-			AssignInvalidUTF8Reason(invalid_reason, invalid_pos, i, UnicodeInvalidReason::BYTE_MISMATCH);
-			return UnicodeType::INVALID;
-		}
-        // 0xF0 --> 1111 0000
-		if ((c & 0xF0) == 0xE0) {
-			continue;
-		}
-		if ((s[++i] & 0xC0) != 0x80) {
-=======
 template <const int nextra_bytes, const int mask>
 static inline UnicodeType
 UTF8ExtraByteLoop(const int first_pos_seq, int utf8char, size_t& i,
@@ -81,7 +44,6 @@ UTF8ExtraByteLoop(const int first_pos_seq, int utf8char, size_t& i,
 		/* now validate the extra bytes */
 		if ((c & 0xC0) != 0x80) {
 			/* extra byte is not in the format 10xxxxxx */
->>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
 			AssignInvalidUTF8Reason(invalid_reason, invalid_pos, i, UnicodeInvalidReason::BYTE_MISMATCH);
 			return UnicodeType::INVALID;
 		}

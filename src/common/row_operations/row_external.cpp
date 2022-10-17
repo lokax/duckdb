@@ -42,7 +42,7 @@ void RowOperations::SwizzleColumns(const RowLayout &layout, const data_ptr_t bas
             // 拿出列所在的指针
 			data_ptr_t col_ptr = row_ptr + layout.GetOffsets()[col_idx];
 			if (physical_type == PhysicalType::VARCHAR) {
-				data_ptr_t string_ptr = col_ptr + sizeof(uint32_t) + string_t::PREFIX_LENGTH;
+				data_ptr_t string_ptr = col_ptr + string_t::HEADER_SIZE;
 				for (idx_t i = 0; i < next; i++) {
 					if (Load<uint32_t>(col_ptr) > string_t::INLINE_LENGTH) {
                         // 存的是行内偏移量
@@ -151,7 +151,7 @@ void RowOperations::UnswizzlePointers(const RowLayout &layout, const data_ptr_t 
 			}
 			data_ptr_t col_ptr = row_ptr + layout.GetOffsets()[col_idx];
 			if (physical_type == PhysicalType::VARCHAR) {
-				data_ptr_t string_ptr = col_ptr + sizeof(uint32_t) + string_t::PREFIX_LENGTH;
+				data_ptr_t string_ptr = col_ptr + string_t::HEADER_SIZE;
 				for (idx_t i = 0; i < next; i++) {
 					if (Load<uint32_t>(col_ptr) > string_t::INLINE_LENGTH) {
 						// Overwrite the string offset with the pointer (if not inlined)

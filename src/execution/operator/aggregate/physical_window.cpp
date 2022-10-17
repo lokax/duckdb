@@ -548,6 +548,7 @@ void WindowLocalSinkState::Combine(WindowGlobalSinkState &gstate) {
 		}
 	}
 
+	(void)check;
 	D_ASSERT(check == count);
 }
 

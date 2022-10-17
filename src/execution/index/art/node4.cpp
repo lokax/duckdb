@@ -32,8 +32,7 @@ idx_t Node4::GetChildGreaterEqual(uint8_t k, bool &equal) {
 			return pos;
 		}
 	}
-    // 抛异常，这是bug
-	return Node::GetChildGreaterEqual(k, equal);
+	return DConstants::INVALID_INDEX;
 }
 
 // 获取最小值的位置？一定是0?
@@ -62,12 +61,7 @@ void Node4::ReplaceChildPointer(idx_t pos, Node *node) {
 void Node4::InsertChild(Node *&node, uint8_t key_byte, Node *new_child) {
 	Node4 *n = (Node4 *)node;
 
-<<<<<<< HEAD
-	// Insert leaf into inner node
-    // 如果有空间剩余
-=======
 	// Insert new child node into node
->>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
 	if (node->count < 4) {
 		// Insert element
 		idx_t pos = 0;
@@ -75,10 +69,7 @@ void Node4::InsertChild(Node *&node, uint8_t key_byte, Node *new_child) {
 		while ((pos < node->count) && (n->key[pos] < key_byte)) {
 			pos++;
 		}
-        // 不等于0
-		if (n->children[pos] != 0) {
-            // 相等的情况也移动？会不会出现插入相同值？
-            // 把所有数据往后移动
+		if (n->children[pos]) {
 			for (idx_t i = n->count; i > pos; i--) {
 				n->key[i] = n->key[i - 1];
 				n->children[i] = n->children[i - 1];
@@ -139,15 +130,18 @@ void Node4::EraseChild(Node *&node, int pos, ART &art) {
 	}
 }
 
-void Node4::Merge(MergeInfo &info, idx_t depth, Node *&l_parent, idx_t l_pos) {
+bool Node4::Merge(MergeInfo &info, idx_t depth, Node *&l_parent, idx_t l_pos) {
 
 	Node4 *r_n = (Node4 *)info.r_node;
 
 	for (idx_t i = 0; i < info.r_node->count; i++) {
 
 		auto l_child_pos = info.l_node->GetChildPos(r_n->key[i]);
-		Node::MergeAtByte(info, depth, l_child_pos, i, r_n->key[i], l_parent, l_pos);
+		if (!Node::MergeAtByte(info, depth, l_child_pos, i, r_n->key[i], l_parent, l_pos)) {
+			return false;
+		}
 	}
+	return true;
 }
 
 idx_t Node4::GetSize() {

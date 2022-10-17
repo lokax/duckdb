@@ -427,11 +427,7 @@ PendingExecutionResult Executor::ExecuteTask() {
 	if (HasError()) { // LCOV_EXCL_START
 		// an exception has occurred executing one of the pipelines
 		execution_result = PendingExecutionResult::EXECUTION_ERROR;
-<<<<<<< HEAD
-		ThrowExceptionInternal(); // 这里不需要加锁
-=======
 		ThrowException();
->>>>>>> 7639565c39e110fc3d056e35377e39b870f8b96d
 	} // LCOV_EXCL_STOP
 	execution_result = PendingExecutionResult::RESULT_READY;
 	return execution_result;

@@ -16,22 +16,27 @@ namespace duckdb {
 struct ParallelTableScanState;
 
 class PersistentTableData;
+class TableDataWriter;
 class TableIndexList;
 class TableStatistics;
 
 class RowGroupCollection {
 public:
-	RowGroupCollection(shared_ptr<DataTableInfo> info, vector<LogicalType> types, idx_t row_start,
-	                   idx_t total_rows = 0);
+	RowGroupCollection(shared_ptr<DataTableInfo> info, BlockManager &block_manager, vector<LogicalType> types,
+	                   idx_t row_start, idx_t total_rows = 0);
 
 public:
 	idx_t GetTotalRows() const;
 	Allocator &GetAllocator() const;
 
 	void Initialize(PersistentTableData &data);
-	void InitializeEmpty();
 
+	bool IsEmpty() const;
+
+	RowGroup *GetSecondToLastRowGroup();
 	void AppendRowGroup(idx_t start_row);
+	//! Get the nth row-group, negative numbers start from the back (so -1 is the last row group, etc)
+	RowGroup *GetRowGroup(int64_t index);
 	void Verify();
 
 	void InitializeScan(CollectionScanState &state, const vector<column_t> &column_ids, TableFilterSet *table_filters);
@@ -46,10 +51,18 @@ public:
 	void Fetch(TransactionData transaction, DataChunk &result, const vector<column_t> &column_ids,
 	           Vector &row_identifiers, idx_t fetch_count, ColumnFetchState &state);
 
+	//! Initialize an append of a variable number of rows. FinalizeAppend must be called after appending is done.
+	void InitializeAppend(TableAppendState &state);
+	//! Initialize an append with a known number of rows. FinalizeAppend should not be called after appending is done.
 	void InitializeAppend(TransactionData transaction, TableAppendState &state, idx_t append_count);
-	void Append(TransactionData transaction, DataChunk &chunk, TableAppendState &state, TableStatistics &stats);
+	//! Appends to the row group collection. Returns true if a new row group has been created to append to
+	bool Append(DataChunk &chunk, TableAppendState &state, TableStatistics &stats);
+	//! FinalizeAppend flushes an append with a variable number of rows.
+	void FinalizeAppend(TransactionData transaction, TableAppendState &state);
 	void CommitAppend(transaction_t commit_id, idx_t row_start, idx_t count);
 	void RevertAppendInternal(idx_t start_row, idx_t count);
+
+	void MergeStorage(RowGroupCollection &data);
 
 	void RemoveFromIndexes(TableIndexList &indexes, Vector &row_identifiers, idx_t count);
 
@@ -59,8 +72,7 @@ public:
 	void UpdateColumn(TransactionData transaction, Vector &row_ids, const vector<column_t> &column_path,
 	                  DataChunk &updates, TableStatistics &stats);
 
-	void Checkpoint(TableDataWriter &writer, vector<RowGroupPointer> &row_group_pointers,
-	                vector<unique_ptr<BaseStatistics>> &global_stats);
+	void Checkpoint(TableDataWriter &writer, vector<unique_ptr<BaseStatistics>> &global_stats);
 
 	void CommitDropColumn(idx_t index);
 	void CommitDropTable();
@@ -77,6 +89,8 @@ public:
 	void VerifyNewConstraint(DataTable &parent, const BoundConstraint &constraint);
 
 private:
+	//! BlockManager
+	BlockManager &block_manager;
 	//! The number of rows in the table
 	atomic<idx_t> total_rows;
 	shared_ptr<DataTableInfo> info;
