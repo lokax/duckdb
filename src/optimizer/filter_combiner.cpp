@@ -785,8 +785,11 @@ FilterResult FilterCombiner::AddTransitiveFilters(BoundComparisonExpression &com
 	Expression *left_node = GetNode(comparison.left.get());
 	Expression *right_node = GetNode(comparison.right.get());
 	// In case with filters like CAST(i) = j and i = 5 we replace the COLUMN_REF i with the constant 5
+	bool need_cast_constant = false;
+	LogicalType cast_type;
 	if (right_node->type == ExpressionType::OPERATOR_CAST) {
 		auto &bound_cast_expr = (BoundCastExpression &)*right_node;
+		cast_type = bound_cast_expr->return_type;
 		if (bound_cast_expr.child->type == ExpressionType::BOUND_COLUMN_REF) {
 			auto &col_ref = (BoundColumnRefExpression &)*bound_cast_expr.child;
 			for (auto &stored_exp : stored_expressions) {
@@ -795,6 +798,7 @@ FilterResult FilterCombiner::AddTransitiveFilters(BoundComparisonExpression &com
 					if (st_col_ref.binding == col_ref.binding) {
 						bound_cast_expr.child = stored_exp.second->Copy();
 						right_node = GetNode(bound_cast_expr.child.get());
+						need_cast_constant = true;
 						break;
 					}
 				}
@@ -823,6 +827,9 @@ FilterResult FilterCombiner::AddTransitiveFilters(BoundComparisonExpression &com
 	for (const auto &right_constant : right_constants) {
 		ExpressionValueInformation info;
 		info.constant = right_constant.constant;
+		if (need_cast_constant) {
+			info.constant = info.constant.DefaultCastAs(cast_type, true);
+		}
 		// there is already an equality filter, e.g., i = 10
 		if (right_constant.comparison_type == ExpressionType::COMPARE_EQUAL) {
 			// create filter j [>, >=, <, <=] 10
