@@ -789,7 +789,7 @@ FilterResult FilterCombiner::AddTransitiveFilters(BoundComparisonExpression &com
 	LogicalType cast_type;
 	if (right_node->type == ExpressionType::OPERATOR_CAST) {
 		auto &bound_cast_expr = (BoundCastExpression &)*right_node;
-		cast_type = bound_cast_expr->return_type;
+		cast_type = bound_cast_expr.return_type;
 		if (bound_cast_expr.child->type == ExpressionType::BOUND_COLUMN_REF) {
 			auto &col_ref = (BoundColumnRefExpression &)*bound_cast_expr.child;
 			for (auto &stored_exp : stored_expressions) {
