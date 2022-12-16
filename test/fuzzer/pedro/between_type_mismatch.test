@@ -1,4 +1,4 @@
-# name: test/fuzzer/pedro/binder_assertion_error.test
+# name: test/fuzzer/pedro/between_type_mismatch.test
 # description: Issue #5435 (38): Between type mismatch
 # group: [pedro]
 
