@@ -398,6 +398,8 @@ bool JoinOrderOptimizer::EmitCSG(JoinRelationSet &node) {
 	for (idx_t i = 0; i < neighbors.size() - 1; i++) {
 		D_ASSERT(neighbors[i] >= neighbors[i + 1]);
 	}
+
+	unordered_set<idx_t> new_exclusion_set = exclusion_set;
 	for (auto neighbor : neighbors) {
 		// since the GetNeighbors only returns the smallest element in a list, the entry might not be connected to
 		// (only!) this neighbor,  hence we have to do a connectedness check before we can emit it
@@ -408,7 +410,9 @@ bool JoinOrderOptimizer::EmitCSG(JoinRelationSet &node) {
 				return false;
 			}
 		}
-		if (!EnumerateCmpRecursive(node, neighbor_relation, exclusion_set)) {
+
+		new_exclusion_set.insert(neighbor);
+		if (!EnumerateCmpRecursive(node, neighbor_relation, new_exclusion_set)) {
 			return false;
 		}
 	}
@@ -428,7 +432,8 @@ bool JoinOrderOptimizer::EnumerateCmpRecursive(JoinRelationSet &left, JoinRelati
 		auto &neighbor = set_manager.GetJoinRelation(neighbors[i]);
 		// emit the combinations of this node and its neighbors
 		auto &combined_set = set_manager.Union(right, neighbor);
-		if (combined_set.count > right.count && plans.find(&combined_set) != plans.end()) {
+		D_ASSERT(combined_set.count > right.count);
+		if (plans.find(&combined_set) != plans.end()) {
 			auto connections = query_graph.GetConnections(left, combined_set);
 			if (!connections.empty()) {
 				if (!TryEmitPair(left, combined_set, connections)) {
@@ -472,9 +477,7 @@ bool JoinOrderOptimizer::EnumerateCSGRecursive(JoinRelationSet &node, unordered_
 	// recursively enumerate the sets
 	unordered_set<idx_t> new_exclusion_set = exclusion_set;
 	for (idx_t i = 0; i < neighbors.size(); i++) {
-		// Reset the exclusion set so that the algorithm considers all combinations
-		// of the exclusion_set with a subset of neighbors.
-		new_exclusion_set = exclusion_set;
+
 		new_exclusion_set.insert(neighbors[i]);
 		// updated the set of excluded entries with this neighbor
 		if (!EnumerateCSGRecursive(union_sets[i], new_exclusion_set)) {
@@ -496,7 +499,7 @@ bool JoinOrderOptimizer::SolveJoinOrderExactly() {
 		}
 		// initialize the set of exclusion_set as all the nodes with a number below this
 		unordered_set<idx_t> exclusion_set;
-		for (idx_t j = 0; j < i - 1; j++) {
+		for (idx_t j = 0; j < i; j++) {
 			exclusion_set.insert(j);
 		}
 		// then we recursively search for neighbors that do not belong to the banned entries
