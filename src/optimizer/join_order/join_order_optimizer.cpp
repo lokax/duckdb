@@ -420,7 +420,7 @@ bool JoinOrderOptimizer::EmitCSG(JoinRelationSet &node) {
 }
 
 bool JoinOrderOptimizer::EnumerateCmpRecursive(JoinRelationSet &left, JoinRelationSet &right,
-                                               unordered_set<idx_t> exclusion_set) {
+                                               unordered_set<idx_t> &exclusion_set) {
 	// get the neighbors of the second relation under the exclusion set
 	auto neighbors = query_graph.GetNeighbors(right, exclusion_set);
 	if (neighbors.empty()) {
@@ -443,6 +443,7 @@ bool JoinOrderOptimizer::EnumerateCmpRecursive(JoinRelationSet &left, JoinRelati
 		}
 		union_sets.push_back(combined_set);
 	}
+
 	// recursively enumerate the sets
 	unordered_set<idx_t> new_exclusion_set = exclusion_set;
 	for (idx_t i = 0; i < neighbors.size(); i++) {
@@ -477,7 +478,6 @@ bool JoinOrderOptimizer::EnumerateCSGRecursive(JoinRelationSet &node, unordered_
 	// recursively enumerate the sets
 	unordered_set<idx_t> new_exclusion_set = exclusion_set;
 	for (idx_t i = 0; i < neighbors.size(); i++) {
-
 		new_exclusion_set.insert(neighbors[i]);
 		// updated the set of excluded entries with this neighbor
 		if (!EnumerateCSGRecursive(union_sets[i], new_exclusion_set)) {
