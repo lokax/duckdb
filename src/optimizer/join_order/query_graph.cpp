@@ -95,10 +95,9 @@ void QueryGraph::EnumerateNeighborsDFS(JoinRelationSet &node, reference<QueryEdg
 }
 
 void QueryGraph::EnumerateNeighbors(JoinRelationSet &node, const std::function<bool(NeighborInfo &)> &callback) {
-    reference<QueryEdge> info = root;
 	for (idx_t j = 0; j < node.count; j++) {
-        auto iter = info.get().children.find(node.relations[j]);
-        if (iter != info.get().children.end()) {
+		auto iter = root.children.find(node.relations[j]);
+		if (iter != root.children.end()) {
 			reference<QueryEdge> new_info = *iter->second;
 			EnumerateNeighborsDFS(node, new_info, j + 1, callback);
 		}
