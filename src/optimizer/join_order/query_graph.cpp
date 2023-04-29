@@ -96,42 +96,58 @@ void QueryGraph::EnumerateNeighborsDFS(JoinRelationSet &node, reference<QueryEdg
 
 void QueryGraph::EnumerateNeighbors(JoinRelationSet &node, const std::function<bool(NeighborInfo &)> &callback) {
 	for (idx_t j = 0; j < node.count; j++) {
+		/*
 		auto iter = root.children.find(node.relations[j]);
 		if (iter != root.children.end()) {
-			reference<QueryEdge> new_info = *iter->second;
-			EnumerateNeighborsDFS(node, new_info, j + 1, callback);
+		    reference<QueryEdge> new_info = *iter->second;
+		    EnumerateNeighborsDFS(node, new_info, j + 1, callback);
+		}
+		*/
+		reference<QueryEdge> info = root;
+		for (idx_t i = j; i < node.count; i++) {
+			auto entry = info.get().children.find(node.relations[i]);
+			if (entry == info.get().children.end()) {
+				// node not found
+				break;
+			}
+			// check if any subset of the other set is in this sets neighbors
+			info = *entry->second;
+			for (auto &neighbor : info.get().neighbors) {
+				if (callback(*neighbor)) {
+					return;
+				}
+			}
 		}
 	}
-}
 
-//! Returns true if a JoinRelationSet is banned by the list of exclusion_set, false otherwise
-static bool JoinRelationSetIsExcluded(JoinRelationSet &node, unordered_set<idx_t> &exclusion_set) {
-	return exclusion_set.find(node.relations[0]) != exclusion_set.end();
-}
+	//! Returns true if a JoinRelationSet is banned by the list of exclusion_set, false otherwise
+	static bool JoinRelationSetIsExcluded(JoinRelationSet & node, unordered_set<idx_t> & exclusion_set) {
+		return exclusion_set.find(node.relations[0]) != exclusion_set.end();
+	}
 
-vector<idx_t> QueryGraph::GetNeighbors(JoinRelationSet &node, unordered_set<idx_t> &exclusion_set) {
-	unordered_set<idx_t> result;
-	EnumerateNeighbors(node, [&](NeighborInfo &info) -> bool {
-		if (!JoinRelationSetIsExcluded(info.neighbor, exclusion_set)) {
-			// add the smallest node of the neighbor to the set
-			result.insert(info.neighbor.relations[0]);
-		}
-		return false;
-	});
-	vector<idx_t> neighbors;
-	neighbors.insert(neighbors.end(), result.begin(), result.end());
-	return neighbors;
-}
+	vector<idx_t> QueryGraph::GetNeighbors(JoinRelationSet & node, unordered_set<idx_t> & exclusion_set) {
+		unordered_set<idx_t> result;
+		EnumerateNeighbors(node, [&](NeighborInfo &info) -> bool {
+			if (!JoinRelationSetIsExcluded(info.neighbor, exclusion_set)) {
+				// add the smallest node of the neighbor to the set
+				result.insert(info.neighbor.relations[0]);
+			}
+			return false;
+		});
+		vector<idx_t> neighbors;
+		neighbors.insert(neighbors.end(), result.begin(), result.end());
+		return neighbors;
+	}
 
-vector<reference<NeighborInfo>> QueryGraph::GetConnections(JoinRelationSet &node, JoinRelationSet &other) {
-	vector<reference<NeighborInfo>> connections;
-	EnumerateNeighbors(node, [&](NeighborInfo &info) -> bool {
-		if (JoinRelationSet::IsSubset(other, info.neighbor)) {
-			connections.push_back(info);
-		}
-		return false;
-	});
-	return connections;
-}
+	vector<reference<NeighborInfo>> QueryGraph::GetConnections(JoinRelationSet & node, JoinRelationSet & other) {
+		vector<reference<NeighborInfo>> connections;
+		EnumerateNeighbors(node, [&](NeighborInfo &info) -> bool {
+			if (JoinRelationSet::IsSubset(other, info.neighbor)) {
+				connections.push_back(info);
+			}
+			return false;
+		});
+		return connections;
+	}
 
 } // namespace duckdb
